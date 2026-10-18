@@ -1,0 +1,10 @@
+node_modules
+dist
+.vite
+*.local
+dev-dist
+.env
+.env.*
+!.env.example
+.vercel
+.vercel-dist-link

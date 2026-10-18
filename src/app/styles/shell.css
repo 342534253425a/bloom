@@ -1,0 +1,153 @@
+/* App shell, dock and create sheet */
+
+.shell {
+  position: absolute;
+  inset: 0;
+}
+
+.dock {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 30;
+  display: grid;
+  grid-template-columns: 1fr 1fr 76px 1fr 1fr;
+  align-items: center;
+  height: 72px;
+  padding: 0 6px;
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(22px) saturate(1.6);
+  -webkit-backdrop-filter: blur(22px) saturate(1.6);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.9) inset,
+    0 18px 40px -16px rgba(60, 70, 120, 0.35),
+    0 2px 6px rgba(60, 70, 120, 0.06);
+  animation: dock-in 0.8s var(--ease) both 0.1s;
+}
+
+@keyframes dock-in {
+  from {
+    transform: translateY(120%);
+  }
+}
+
+.dock-link {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  height: 100%;
+  align-content: center;
+  color: #a2a9b9;
+  transition: color 0.3s ease;
+}
+
+.dock-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 32px;
+  border-radius: 99px;
+  transition: transform 0.45s var(--spring);
+}
+
+.dock-icon::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--mint-50);
+  box-shadow: inset 0 0 0 1px var(--mint-100);
+  transform: scale(0.4);
+  opacity: 0;
+  transition:
+    transform 0.45s var(--spring),
+    opacity 0.3s ease;
+  z-index: -1;
+}
+
+.dock-icon svg {
+  position: relative;
+}
+
+.dock-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1px;
+}
+
+.dock-link.is-active {
+  color: var(--mint-600);
+}
+
+.dock-link.is-active .dock-icon::before {
+  transform: scale(1);
+  opacity: 1;
+}
+
+.dock-link:active .dock-icon {
+  transform: scale(0.86);
+}
+
+.dock-plus {
+  justify-self: center;
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  margin-top: -30px;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(150deg, #5fe0b8 0%, var(--mint-600) 100%);
+  box-shadow:
+    0 0 0 6px rgba(255, 255, 255, 0.95),
+    0 16px 30px -8px rgba(31, 174, 132, 0.65);
+  transition:
+    transform 0.5s var(--spring),
+    box-shadow 0.3s;
+}
+
+.dock-plus svg {
+  transition: transform 0.5s var(--spring);
+}
+
+.dock-plus:active {
+  transform: scale(0.9);
+}
+
+.dock-plus.is-open svg {
+  transform: rotate(135deg);
+}
+
+.create-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.create-item {
+  display: grid;
+  gap: 2px;
+  padding: 14px;
+  border-radius: var(--r-lg);
+  box-shadow: none;
+}
+
+.create-item .tile {
+  margin-bottom: 8px;
+}
+
+.create-item strong {
+  font-weight: 800;
+  font-size: 15px;
+}
+
+.create-item small {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}

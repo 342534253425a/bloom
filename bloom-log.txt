@@ -1,0 +1,28 @@
+=== node ===
+v22.22.2
+=== npm ===
+10.9.7
+=== install ===
+
+up to date, audited 422 packages in 2s
+
+123 packages are looking for funding
+  run `npm fund` for details
+
+3 vulnerabilities (1 moderate, 2 critical)
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+=== dev ===
+
+> bloom@0.1.0 dev
+> vite --host 127.0.0.1 --port 5173 --open
+
+
+  [32m[1mVITE[22m v7.3.7[39m  [2mready in [0m[1m624[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5173[22m/[39m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+^C^C

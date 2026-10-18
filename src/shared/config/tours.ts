@@ -1,0 +1,115 @@
+/**
+ * Guided tours. The first step of each tour is an "intro" card that lists everything the space can do;
+ * the rest highlight an element marked with `data-tour="<target>"`. Steps whose element is not on
+ * screen (for example an empty list) are skipped automatically.
+ */
+export type TourId = "home" | "goals" | "habits" | "tasks" | "focus" | "body" | "reflect" | "stats" | "together" | "garden" | "privacy";
+
+export type TourStep = { key: string; kind?: "intro"; target?: string; art?: string };
+
+export const tours: Record<TourId, TourStep[]> = {
+  home: [
+    { key: "intro", kind: "intro", art: "c-wave-sun" },
+    { key: "day", target: "home-day" },
+    { key: "checkin", target: "home-checkin" },
+    { key: "top", target: "home-top" },
+    { key: "habits", target: "home-habits" },
+    { key: "focus", target: "home-focus" },
+    { key: "garden", target: "home-garden" },
+    { key: "evening", target: "home-evening" },
+    { key: "spaces", target: "home-spaces" },
+    { key: "create", target: "create" },
+    { key: "nav", target: "nav" },
+  ],
+  goals: [
+    { key: "intro", kind: "intro", art: "c-hug-star" },
+    { key: "tabs", target: "goals-tabs" },
+    { key: "ladder", target: "goals-ladder" },
+    { key: "card", target: "goals-card" },
+    { key: "add", target: "goals-add" },
+    { key: "help", target: "help" },
+  ],
+  habits: [
+    { key: "intro", kind: "intro", art: "c-watering" },
+    { key: "hero", target: "habits-hero" },
+    { key: "item", target: "habits-item" },
+    { key: "check", target: "habits-check" },
+    { key: "menu", target: "habits-menu" },
+    { key: "week", target: "habits-week" },
+    { key: "vacation", target: "habits-vacation" },
+    { key: "add", target: "habits-add" },
+    { key: "help", target: "help" },
+  ],
+  tasks: [
+    { key: "intro", kind: "intro", art: "c-checklist" },
+    { key: "focus", target: "tasks-focus" },
+    { key: "tabs", target: "tasks-tabs" },
+    { key: "quick", target: "tasks-quick" },
+    { key: "top", target: "tasks-top" },
+    { key: "list", target: "tasks-list" },
+    { key: "help", target: "help" },
+  ],
+  focus: [
+    { key: "intro", kind: "intro", art: "c-headphones" },
+    { key: "presets", target: "focus-presets" },
+    { key: "timer", target: "focus-timer" },
+    { key: "setup", target: "focus-setup" },
+    { key: "stats", target: "focus-stats" },
+    { key: "procr", target: "focus-procr" },
+  ],
+  body: [
+    { key: "intro", kind: "intro", art: "c-sit-calm" },
+    { key: "mood", target: "body-mood" },
+    { key: "energy", target: "body-energy" },
+    { key: "stress", target: "body-stress" },
+    { key: "trackers", target: "body-trackers" },
+    { key: "good", target: "body-good" },
+    { key: "breath", target: "body-breath" },
+    { key: "history", target: "body-tabs" },
+  ],
+  reflect: [
+    { key: "intro", kind: "intro", art: "c-read-cup" },
+    { key: "tabs", target: "reflect-tabs" },
+    { key: "form", target: "reflect-form" },
+    { key: "save", target: "reflect-save" },
+  ],
+  stats: [
+    { key: "intro", kind: "intro", art: "c-calm-sparkles" },
+    { key: "period", target: "stats-period" },
+    { key: "report", target: "stats-report" },
+    { key: "tiles", target: "stats-tiles" },
+    { key: "charts", target: "stats-charts" },
+    { key: "insights", target: "stats-insights" },
+  ],
+  together: [
+    { key: "intro", kind: "intro", art: "c-pair-hearts" },
+    { key: "pair", target: "together-pair" },
+    { key: "partner", target: "together-partner" },
+    { key: "watch", target: "together-watch" },
+    { key: "chat", target: "together-chat" },
+    { key: "love", target: "together-love" },
+    { key: "question", target: "together-question" },
+    { key: "habits", target: "together-habits" },
+    { key: "focus", target: "together-focus" },
+    { key: "garden", target: "together-garden" },
+    { key: "reminders", target: "together-reminders" },
+  ],
+  garden: [
+    { key: "intro", kind: "intro", art: "c-flower-arms" },
+    { key: "plant", target: "garden-plant" },
+    { key: "bank", target: "garden-bank" },
+    { key: "streak", target: "garden-streak" },
+    { key: "shop", target: "garden-shop" },
+    { key: "weather", target: "garden-weather" },
+    { key: "badges", target: "garden-badges" },
+    { key: "rule", target: "garden-rule" },
+  ],
+  privacy: [
+    { key: "intro", kind: "intro", art: "c-hug-heart" },
+    { key: "mode", target: "privacy-mode" },
+    { key: "modules", target: "privacy-modules" },
+    { key: "sync", target: "privacy-sync" },
+    { key: "lock", target: "privacy-lock" },
+    { key: "data", target: "privacy-data" },
+  ],
+};
