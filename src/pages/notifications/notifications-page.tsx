@@ -1,12 +1,12 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { clearInbox, kindOn, kindTime, markAllRead, notify, pushSnapshot, setPushActive, timePatch, togglePatch, useInbox } from "@/entities/notify";
+import { clearInbox, kindOn, kindTime, markAllRead, pushSnapshot, setPushActive, timePatch, togglePatch, useInbox } from "@/entities/notify";
 import { savePrefs, usePrefs, type Prefs } from "@/entities/prefs";
 import { useUser } from "@/entities/session";
 import { kindById, notifyGroups, notifyKinds } from "@/shared/config/notifications";
 import { currentLang } from "@/shared/i18n";
-import { currentSubscription, enablePush, lastPushError, needsInstallForPush, pushSupported, sendTestPush, type EnableResult } from "@/shared/lib/push";
+import { currentSubscription, enablePush, lastPushError, needsInstallForPush, pushSupported, type EnableResult } from "@/shared/lib/push";
 import { Empty, PageHead, Tabs } from "@/shared/ui/bloom";
 import { Glyph } from "@/shared/ui/glyph";
 import { Toggle, toast } from "@/shared/ui/kit";
@@ -82,6 +82,14 @@ function Inbox({ userId }: { userId: string }) {
   );
 }
 
+/** A short human name for this device and browser, so it's clear which one is being switched on. */
+function deviceName() {
+  const ua = navigator.userAgent;
+  const os = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" : /Windows/.test(ua) ? "Windows" : /Mac OS X/.test(ua) ? "Mac" : /Linux/.test(ua) ? "Linux" : "";
+  const browser = /YaBrowser/.test(ua) ? "Yandex Browser" : /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "";
+  return [browser, os].filter(Boolean).join(" · ") || "—";
+}
+
 function permissionState(): NotificationPermission | "unsupported" {
   return "Notification" in window ? Notification.permission : "unsupported";
 }
@@ -130,7 +138,8 @@ function Settings({ userId, prefs }: { userId: string; prefs: Prefs }) {
     <div className="notify-settings">
       <section className="card notify-perm rise">
         <span className="notify-perm-icon">🔔</span>
-        <div>
+        <div className="notify-perm-body">
+          <small className="tiny">{t("notify.device.this", { device: deviceName() })}</small>
           {needsInstallForPush() ? (
             <>
               <strong>{t("notify.permission.title")}</strong>
@@ -139,19 +148,33 @@ function Settings({ userId, prefs }: { userId: string; prefs: Prefs }) {
           ) : permission === "unsupported" || !pushSupported ? (
             <p className="sub">{t("notify.permission.unsupported")}</p>
           ) : permission === "denied" ? (
-            <p className="sub">{t("notify.permission.denied")}</p>
+            <>
+              <strong>{t("notify.device.blocked")}</strong>
+              <ol className="notify-steps">
+                <li>{t("notify.device.step1")}</li>
+                <li>{t("notify.device.step2")}</li>
+                <li>{t("notify.device.step3")}</li>
+              </ol>
+              <button type="button" className="btn is-sm is-soft" onClick={() => window.location.reload()}>
+                {t("notify.device.reload")}
+              </button>
+            </>
           ) : permission === "granted" && push ? (
             <>
               <strong>{t("notify.permission.granted")}</strong>
               <p className="sub">✅ {t("notify.push.on")}</p>
+              <button type="button" className="btn is-sm is-soft" disabled={busy} onClick={() => void turnOn()}>
+                <Glyph name="reset" size={16} />
+                {t("notify.device.reconnect")}
+              </button>
             </>
           ) : (
             <>
-              <strong>{permission === "granted" ? t("notify.permission.granted") : t("notify.permission.title")}</strong>
-              <p className="sub">{permission === "granted" ? t("notify.push.off") : t("notify.permission.body")}</p>
-              <button type="button" className="btn is-sm" disabled={busy} onClick={() => void turnOn()}>
-                <Glyph name="bell" size={18} />
-                {permission === "granted" ? t("notify.push.enable") : t("notify.permission.allow")}
+              <strong>{t("notify.permission.title")}</strong>
+              <p className="sub">{t("notify.permission.body")}</p>
+              <button type="button" className="btn" disabled={busy} onClick={() => void turnOn()}>
+                {busy ? <span className="spinner" aria-hidden="true" /> : <Glyph name="bell" size={18} />}
+                {t("notify.device.allow")}
               </button>
             </>
           )}
@@ -159,26 +182,7 @@ function Settings({ userId, prefs }: { userId: string; prefs: Prefs }) {
         </div>
       </section>
 
-      <div className="row-btns">
-        <button
-          type="button"
-          className="btn is-sm"
-          onClick={async () => {
-            const sent = await sendTestPush();
-            if (sent == null) toast(t("notify.push.testFailed"), "c-frown");
-            else if (sent === 0) toast(t("notify.push.testNone"), "c-frown");
-            else toast(t("notify.push.testSent", { n: sent }), "c-arms-up");
-          }}
-        >
-          📲 {t("notify.push.test")}
-        </button>
-        <button
-          type="button"
-          className="btn is-sm is-ghost"
-          onClick={() => notify({ userId, prefs: { ...prefs, quietOn: false, notifyOff: [] }, kind: "message", title: t("notify.testTitle"), body: t("notify.testBody"), to: "/notifications" })}
-        >
-          {t("notify.test")}
-        </button>
+      <div className="row-btns is-end">
         <button type="button" className="btn is-sm is-ghost" onClick={() => setAll(true)}>
           {t("notify.allOn")}
         </button>

@@ -21,6 +21,16 @@ export const notifyStrings = {
   quiet: ["Quiet hours", "Тихие часы", "免打扰时段"],
   quietBody: ["No sounds from {{from}} to {{to}}; everything still lands in the inbox.", "С {{from}} до {{to}} без звуков, всё попадёт во «Входящие».", "{{from}} 至 {{to}} 静音，通知仍会进入收件箱。"],
 
+  device: {
+    this: ["This device: {{device}}", "Это устройство: {{device}}", "本设备：{{device}}"],
+    allow: ["Allow notifications on this device", "Разрешить уведомления на этом устройстве", "在本设备上允许通知"],
+    reconnect: ["Reconnect this device to my account", "Подключить это устройство к моему аккаунту заново", "将本设备重新连接到我的账户"],
+    blocked: ["Notifications are blocked for Bloom in this browser", "Уведомления для Bloom заблокированы в этом браузере", "此浏览器已屏蔽 Bloom 的通知"],
+    step1: ["Tap the 🔒 (or ⓘ) to the left of the site address.", "Нажми на 🔒 (или ⓘ) слева от адреса сайта.", "点击网址左侧的 🔒（或 ⓘ）。"],
+    step2: ["Open “Notifications” / “Site settings” and choose “Allow”.", "Открой «Уведомления» / «Настройки сайта» и выбери «Разрешить».", "打开“通知”/“网站设置”，选择“允许”。"],
+    step3: ["For the installed app: phone Settings → Apps → Bloom (or your browser) → Notifications → On.", "Для установленного приложения: Настройки телефона → Приложения → Bloom (или твой браузер) → Уведомления → Вкл.", "已安装的应用：手机设置 → 应用 → Bloom（或浏览器）→ 通知 → 开启。"],
+    reload: ["I allowed it, reload", "Я разрешил, обновить", "已允许，刷新"],
+  },
   permission: {
     title: ["Allow notifications", "Разрешить уведомления", "允许通知"],
     body: ["So Bloom can reach you even when the app is in the background.", "Чтобы Bloom мог достучаться, даже когда приложение свёрнуто.", "这样即使应用在后台，Bloom 也能提醒你。"],
