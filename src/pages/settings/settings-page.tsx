@@ -148,11 +148,13 @@ export function SettingsPage() {
                   <small>{t("settings.installBody")}</small>
                 </span>
               </div>
-              <InstallButton className="btn is-block" />
-              <button type="button" className="btn is-soft is-sm" onClick={() => set({ onboarded: false })}>
-                <Glyph name="sparkle" size={18} />
-                {t("settings.tour")}
-              </button>
+              <div className="settings-actions">
+                <InstallButton className="btn is-block" />
+                <button type="button" className="btn is-soft is-block" onClick={() => set({ onboarded: false })}>
+                  <Glyph name="sparkle" size={18} />
+                  {t("settings.tour")}
+                </button>
+              </div>
             </section>
           </Section>
         </div>
@@ -249,6 +251,17 @@ export function SettingsPage() {
           >
             <Glyph name="logout" size={18} />
             {t("settings.signOut")}
+          </button>
+          <button
+            type="button"
+            className="btn is-ghost is-block settings-erase"
+            onClick={() => {
+              sessionStorage.setItem("bloom.openErase", "1");
+              void navigate({ to: "/privacy" });
+            }}
+          >
+            <Glyph name="trash" size={18} />
+            {t("privacy.erase")}
           </button>
           <p className="tiny center">{t("settings.version")}</p>
         </div>

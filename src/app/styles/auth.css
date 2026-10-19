@@ -358,3 +358,51 @@
     display: none;
   }
 }
+
+/* Mascot never covers the heading on screens without the sign-in/sign-up switch. */
+.auth-mascot {
+  height: 116px;
+  object-fit: contain;
+}
+.auth-mascot + .auth-head {
+  margin-top: 46px;
+}
+
+/* One-time code */
+.auth-code input {
+  width: 100%;
+  padding: 16px 12px;
+  border-radius: var(--r-lg);
+  border: 2px solid var(--line-2);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 0.45em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.auth-code input:focus {
+  outline: none;
+  border-color: var(--mint);
+  box-shadow: 0 0 0 4px var(--mint-100);
+}
+.auth-code input::placeholder {
+  color: var(--faint);
+}
+.auth-links.is-split {
+  justify-content: space-between;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.auth-code-hint {
+  margin: -4px 0 0;
+  text-align: center;
+  color: var(--muted);
+}

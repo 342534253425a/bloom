@@ -120,9 +120,23 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
   useEffect(() => {
     const node = list.current;
     if (!node) return;
-    if (unreadFrom.current) document.getElementById(`m-${unreadFrom.current}`)?.scrollIntoView({ block: "center" });
+    // In the cinema the chat behaves like a stream chat: always open on the newest messages.
+    if (unreadFrom.current && !compact) document.getElementById(`m-${unreadFrom.current}`)?.scrollIntoView({ block: "center" });
     else node.scrollTo({ top: node.scrollHeight });
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When the chat box changes size (keyboard opens, video resizes) stay pinned to the newest message.
+  const stickRef = useRef(true);
+  stickRef.current = atBottom;
+  useEffect(() => {
+    const node = list.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickRef.current) node.scrollTo({ top: node.scrollHeight });
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {

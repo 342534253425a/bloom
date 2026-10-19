@@ -1,4 +1,5 @@
 import type { User as AuthUser } from "@supabase/supabase-js";
+import { currentLang } from "@/shared/i18n";
 import type { PublicUser } from "@/entities/user";
 import { supabase } from "@/shared/api/supabase";
 import { pushEverything, startSync, stopSync } from "@/shared/api/sync";
@@ -9,7 +10,8 @@ import { db, type Tone } from "@/shared/db";
 import { i18n } from "@/shared/i18n";
 
 function toUser(user: AuthUser): PublicUser {
-  const name = typeof user.user_metadata?.name === "string" ? user.user_metadata.name : "";
+  const meta = user.user_metadata ?? {};
+  const name = [meta.name, meta.full_name, meta.given_name].find((value): value is string => typeof value === "string" && value.trim() !== "") ?? "";
   return { id: user.id, email: user.email ?? "", displayName: name || (user.email ?? "").split("@")[0] || "Bloom" };
 }
 
@@ -123,6 +125,7 @@ function authError(message: string): DomainError {
   const text = message.toLowerCase();
   if (text.includes("already registered") || text.includes("already been registered")) return new DomainError("email-taken");
   if (text.includes("not confirmed")) return new DomainError("email-unconfirmed");
+  if (text.includes("expired") || text.includes("invalid") && text.includes("token") || text.includes("otp")) return new DomainError("code-invalid");
   if (text.includes("invalid login") || text.includes("invalid credentials")) return new DomainError("invalid-credentials");
   if (text.includes("rate limit") || text.includes("too many")) return new DomainError("code-limited");
   if (text.includes("fetch") || text.includes("network")) return new DomainError("offline");
@@ -134,7 +137,7 @@ export async function registerAccount(input: { name: string; email: string; pass
   const { data, error } = await supabase.auth.signUp({
     email: input.email.trim().toLowerCase(),
     password: input.password,
-    options: { data: { name: input.name.trim() }, emailRedirectTo: window.location.origin },
+    options: { data: { name: input.name.trim(), lang: currentLang() }, emailRedirectTo: window.location.origin },
   });
   if (error) throw authError(error.message);
   // Supabase hides existing emails behind a user with no identities.
@@ -143,6 +146,33 @@ export async function registerAccount(input: { name: string; email: string; pass
   const user = toUser(data.user);
   await enterAccount(user);
   return user;
+}
+
+export type CodeKind = "signup" | "email" | "recovery";
+
+/** Checks the 6-digit code from the email and signs the person in. */
+export async function verifyCode(email: string, code: string, kind: CodeKind): Promise<PublicUser> {
+  const address = email.trim().toLowerCase();
+  const token = code.replace(/\D/g, "");
+  // A code from any of our emails should work on any code screen: try the expected kind first, then the others.
+  const order: Array<"signup" | "email" | "recovery" | "magiclink"> = kind === "recovery" ? ["recovery", "email"] : kind === "signup" ? ["email", "signup", "magiclink"] : ["email", "magiclink", "signup"];
+  let lastError = "";
+  for (const type of order) {
+    const { data, error } = await supabase.auth.verifyOtp({ email: address, token, type });
+    if (!error && data.user) {
+      const user = toUser(data.user);
+      await enterAccount(user);
+      return user;
+    }
+    lastError = error?.message ?? lastError;
+  }
+  throw authError(lastError || "invalid token");
+}
+
+/** Sends the confirmation email again. */
+export async function resendConfirmation(email: string): Promise<void> {
+  const { error } = await supabase.auth.resend({ type: "signup", email: email.trim().toLowerCase(), options: { emailRedirectTo: window.location.origin } });
+  if (error) throw authError(error.message);
 }
 
 export async function loginAccount(input: { email: string; password: string }): Promise<PublicUser> {
@@ -156,6 +186,32 @@ export async function loginAccount(input: { email: string; password: string }): 
 export async function sendPasswordReset(email: string): Promise<void> {
   const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: window.location.origin });
   if (error) throw authError(error.message);
+}
+
+/** Opens Google sign-in; Supabase brings the person back to Bloom already signed in. */
+export async function signInWithGoogle(): Promise<void> {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: window.location.origin, queryParams: { prompt: "select_account" } },
+  });
+  if (error) throw authError(error.message);
+}
+
+/** Emails a one-tap sign-in link (creates the account if it doesn't exist yet). */
+export async function sendMagicLink(email: string, name?: string): Promise<void> {
+  const { error } = await supabase.auth.signInWithOtp({
+    email: email.trim().toLowerCase(),
+    options: { emailRedirectTo: window.location.origin, shouldCreateUser: true, data: name?.trim() ? { name: name.trim(), lang: currentLang() } : { lang: currentLang() } },
+  });
+  if (error) throw authError(error.message);
+}
+
+/** Remembers the app language on the account, so emails come in the same language. */
+export async function syncLanguage(lang: string): Promise<void> {
+  const { data } = await supabase.auth.getSession();
+  const user = data.session?.user;
+  if (!user || user.user_metadata?.lang === lang) return;
+  await supabase.auth.updateUser({ data: { lang } });
 }
 
 export async function changePassword(password: string): Promise<void> {

@@ -1,4 +1,6 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { syncLanguage } from "@/features/authenticate";
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef } from "react";
 import { connectCouple, markAway, publishDay, setActivity, useCouple, useItems, type Activity } from "@/entities/couple";
 import { db } from "@/shared/db";
@@ -71,6 +73,13 @@ export function CoupleBridge() {
   useEffect(() => {
     void connectCouple(user.id, user.displayName);
   }, [user.id, user.displayName]);
+
+  // Emails (codes, resets) are written in the app language saved on the account.
+  const { i18n } = useTranslation();
+  useEffect(() => {
+    const timer = window.setTimeout(() => void syncLanguage(i18n.language).catch(() => undefined), 2000);
+    return () => window.clearTimeout(timer);
+  }, [i18n.language, user.id]);
 
   useEffect(() => {
     if (pendingInvite() && couple.status === "ready" && !couple.partner && !path.startsWith("/together")) void navigate({ to: "/together" });

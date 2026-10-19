@@ -2789,7 +2789,7 @@
   align-items: center;
   gap: 10px;
 }
-.tracker-head > span {
+.tracker-head > span:not(.tile) {
   display: grid;
   flex: 1;
   min-width: 0;
@@ -4198,4 +4198,48 @@
 
 .choice {
   text-align: left;
+}
+
+/* Breathing card: keep the title readable over the illustration. */
+.breath-card {
+  isolation: isolate;
+  overflow: hidden;
+}
+.breath-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.85) 0%, rgba(255, 255, 255, 0.5) 45%, rgba(255, 255, 255, 0) 75%);
+  pointer-events: none;
+}
+.breath-card > span:nth-child(2) {
+  flex: 0 1 auto;
+  max-width: min(70%, 340px);
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-xs);
+}
+.breath-card > span:nth-child(2) strong {
+  color: var(--ink);
+}
+.breath-card .chev-bubble {
+  margin-left: auto;
+}
+.breath-card .breath-bg {
+  z-index: -2;
+}
+.settings-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+.btn.settings-erase {
+  margin-top: 8px;
+  color: var(--coral-600);
+  border: 1.5px solid var(--pink-100);
+  background: transparent;
 }

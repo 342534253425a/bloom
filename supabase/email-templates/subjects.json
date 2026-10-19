@@ -1,0 +1,6 @@
+{
+  "confirmation": "{{ if eq .Data.lang \"ru\" }}{{ .Token }} — код подтверждения Bloom{{ else if eq .Data.lang \"zh\" }}{{ .Token }} — Bloom 邮箱验证码{{ else }}{{ .Token }} — confirm your Bloom email{{ end }}",
+  "magic_link": "{{ if eq .Data.lang \"ru\" }}{{ .Token }} — код для входа в Bloom{{ else if eq .Data.lang \"zh\" }}{{ .Token }} — Bloom 登录验证码{{ else }}{{ .Token }} — your Bloom sign-in code{{ end }}",
+  "recovery": "{{ if eq .Data.lang \"ru\" }}{{ .Token }} — сброс пароля Bloom{{ else if eq .Data.lang \"zh\" }}{{ .Token }} — Bloom 重置密码验证码{{ else }}{{ .Token }} — reset your Bloom password{{ end }}",
+  "email_change": "{{ if eq .Data.lang \"ru\" }}{{ .Token }} — подтверждение новой почты Bloom{{ else if eq .Data.lang \"zh\" }}{{ .Token }} — Bloom 新邮箱验证码{{ else }}{{ .Token }} — confirm your new Bloom email{{ end }}"
+}

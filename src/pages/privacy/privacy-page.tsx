@@ -28,7 +28,12 @@ export function PrivacyPage() {
   const share = useSharing(user.id);
   const [pinOpen, setPinOpen] = useState(false);
   const [locked, setLocked] = useState(() => hasPasscode(user.id));
-  const [eraseOpen, setEraseOpen] = useState(false);
+  const [eraseOpen, setEraseOpen] = useState(() => {
+    // Opened straight from Settings → Delete account.
+    const ask = sessionStorage.getItem("bloom.openErase") === "1";
+    sessionStorage.removeItem("bloom.openErase");
+    return ask;
+  });
   const [word, setWord] = useState("");
   const [outOpen, setOutOpen] = useState(false);
   const file = useRef<HTMLInputElement>(null);

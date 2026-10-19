@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { setAuthState } from "@/entities/session";
 import { currentLang, setLocale } from "@/shared/i18n";
@@ -8,18 +8,19 @@ import { burst, haptic, shake } from "@/shared/lib/motion/fx";
 import { Glyph } from "@/shared/ui/glyph";
 import { Art, Segmented } from "@/shared/ui/kit";
 import { InstallButton } from "@/widgets/install/install";
-import { loginAccount, registerAccount, sendPasswordReset } from "../api/authenticate";
+import { loginAccount, registerAccount, resendConfirmation, sendMagicLink, sendPasswordReset, signInWithGoogle, verifyCode } from "../api/authenticate";
+import { setRecovering } from "../model/recovery";
 
 type Mode = "login" | "register";
-type Screen = "form" | "confirm" | "reset" | "resetSent";
+type Screen = "form" | "confirm" | "reset" | "resetSent" | "linkSent";
 type Errors = Partial<Record<"name" | "email" | "password", string>>;
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-export function AuthScreen() {
+export function AuthScreen({ initialMode = "login", onBack }: { initialMode?: Mode; onBack?: () => void } = {}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<Mode>("login");
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [screen, setScreen] = useState<Screen>("form");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -28,6 +29,22 @@ export function AuthScreen() {
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [resent, setResent] = useState(false);
+  // Every new email voids the previous code, so sending is limited to once a minute per address.
+  const lastSend = useRef<{ email: string; at: number } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const cooldown = lastSend.current ? Math.max(0, Math.ceil((lastSend.current.at + 60_000 - now) / 1000)) : 0;
+  useEffect(() => {
+    if (!cooldown) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [cooldown]);
+  const markSent = () => {
+    lastSend.current = { email: email.trim().toLowerCase(), at: Date.now() };
+    setNow(Date.now());
+  };
+  const recentlySent = () => Boolean(lastSend.current && lastSend.current.email === email.trim().toLowerCase() && Date.now() - lastSend.current.at < 60_000);
+  const [code, setCode] = useState("");
   const card = useRef<HTMLFormElement>(null);
   const submit = useRef<HTMLButtonElement>(null);
 
@@ -69,9 +86,25 @@ export function AuthScreen() {
     event.preventDefault();
     if (pending) return;
     setFormError(null);
-    if (screen === "confirm" || screen === "resetSent") {
-      setMode("login");
-      setScreen("form");
+    if (screen === "confirm" || screen === "resetSent" || screen === "linkSent") {
+      const digits = code.replace(/\D/g, "");
+      if (digits.length < 6) {
+        fail(t("auth.codeNeed"));
+        return;
+      }
+      setPending(true);
+      try {
+        const kind = screen === "confirm" ? "signup" : screen === "linkSent" ? "email" : "recovery";
+        const user = await verifyCode(email, digits, kind);
+        // After a reset code the person chooses a new password right away.
+        if (kind === "recovery") setRecovering(true);
+        await finish(user);
+      } catch (error) {
+        fail(isDomainError(error) && error.code === "code-invalid" ? t("auth.codeInvalid") : explain(error));
+        setCode("");
+      } finally {
+        setPending(false);
+      }
       return;
     }
     const found = validate();
@@ -84,16 +117,32 @@ export function AuthScreen() {
     try {
       if (screen === "reset") {
         await sendPasswordReset(email);
+        markSent();
+        setCode("");
         setScreen("resetSent");
         return;
       }
       if (mode === "login") {
-        await finish(await loginAccount({ email, password }));
+        try {
+          await finish(await loginAccount({ email, password }));
+        } catch (error) {
+          if (isDomainError(error) && error.code === "email-unconfirmed") {
+            if (!recentlySent()) await resendConfirmation(email).then(markSent).catch(() => undefined);
+            setCode("");
+            setScreen("confirm");
+            return;
+          }
+          throw error;
+        }
         return;
       }
       const user = await registerAccount({ name, email, password });
       if (user) await finish(user);
-      else setScreen("confirm");
+      else {
+        markSent();
+        setCode("");
+        setScreen("confirm");
+      }
     } catch (error) {
       if (!isDomainError(error)) console.error(error);
       fail(explain(error));
@@ -107,19 +156,21 @@ export function AuthScreen() {
     confirm: t("auth.confirmTitle"),
     reset: t("auth.resetTitle"),
     resetSent: t("auth.resetSentTitle"),
+    linkSent: t("auth.magicTitle"),
   };
   const ledes: Record<Screen, string> = {
     form: mode === "login" ? t("auth.welcomeBody") : t("auth.createBody"),
     confirm: t("auth.confirmBody", { email: email.trim() }),
     reset: t("auth.resetBody"),
     resetSent: t("auth.resetSentBody", { email: email.trim() }),
+    linkSent: t("auth.magicBody", { email: email.trim() }),
   };
   const action = pending
     ? mode === "register" && screen === "form"
       ? t("auth.creating")
       : t("auth.signingIn")
-    : screen === "confirm" || screen === "resetSent"
-      ? t("auth.toSignIn")
+    : screen === "confirm" || screen === "resetSent" || screen === "linkSent"
+      ? t("auth.codeVerify")
       : screen === "reset"
         ? t("auth.resetSend")
         : mode === "login"
@@ -127,9 +178,49 @@ export function AuthScreen() {
           : t("auth.create");
   const showFields = screen === "form" || screen === "reset";
 
+  async function google() {
+    setFormError(null);
+    setPending(true);
+    try {
+      await signInWithGoogle();
+    } catch {
+      fail(t("auth.googleFailed"));
+      setPending(false);
+    }
+  }
+
+  async function magic() {
+    setFormError(null);
+    if (!EMAIL.test(email.trim())) {
+      fail(t("auth.magicNeedEmail"), { email: t("auth.emailInvalid") });
+      return;
+    }
+    setErrors({});
+    if (recentlySent()) {
+      setScreen("linkSent");
+      return;
+    }
+    setPending(true);
+    try {
+      await sendMagicLink(email, mode === "register" ? name : undefined);
+      markSent();
+      setCode("");
+      setScreen("linkSent");
+    } catch (error) {
+      fail(explain(error));
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <main className="viewport is-bare auth">
       <div className="auth-sky">
+        {onBack ? (
+          <button type="button" className="round-btn auth-back" aria-label={t("common.back")} onClick={onBack}>
+            <Glyph name="back" size={20} stroke={2.4} />
+          </button>
+        ) : null}
         <Art name="s-meadow-lake" className="auth-scene" eager />
         <div className="auth-brand rise" style={{ "--i": 0 } as CSSProperties}>
           <span className="wordmark">
@@ -234,6 +325,24 @@ export function AuthScreen() {
           </div>
         ) : null}
 
+        {screen === "confirm" || screen === "resetSent" || screen === "linkSent" ? (
+          <label className="auth-code">
+            <span className="sr-only">{t("auth.codeLabel")}</span>
+            <input
+              value={code}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]*"
+              maxLength={8}
+              autoFocus
+              placeholder="••••••"
+              aria-label={t("auth.codeLabel")}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 8))}
+            />
+          </label>
+        ) : null}
+        {screen === "confirm" || screen === "resetSent" || screen === "linkSent" ? <p className="tiny auth-code-hint">{t("auth.codeLatest")}</p> : null}
+
         {formError ? (
           <p className="form-alert" role="alert">
             <Glyph name="sparkle" size={16} />
@@ -246,7 +355,64 @@ export function AuthScreen() {
           {action}
         </button>
 
-        {screen === "form" && mode === "login" ? (
+        {screen === "form" ? (
+          <div className="auth-alt">
+            <span className="auth-or">{t("auth.or")}</span>
+            <button type="button" className="btn is-ghost is-block auth-google" disabled={pending} onClick={() => void google()}>
+              <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+                <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z" />
+                <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+                <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+                <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
+              </svg>
+              {t("auth.google")}
+            </button>
+            <button type="button" className="btn is-ghost is-block" disabled={pending} onClick={() => void magic()}>
+              <Glyph name="mail" size={19} />
+              {t("auth.magic")}
+            </button>
+          </div>
+        ) : null}
+
+        {screen === "confirm" || screen === "linkSent" || screen === "resetSent" ? (
+          <div className="auth-links is-split">
+            <button
+              className="link is-muted"
+              type="button"
+              onClick={() => {
+                setFormError(null);
+                setCode("");
+                setResent(false);
+                setScreen(screen === "resetSent" ? "reset" : "form");
+              }}
+            >
+              {t("common.back")}
+            </button>
+            <button
+              className="link"
+              type="button"
+              disabled={cooldown > 0 || pending}
+              onClick={async () => {
+                setPending(true);
+                try {
+                  if (screen === "confirm") await resendConfirmation(email);
+                  else if (screen === "linkSent") await sendMagicLink(email);
+                  else await sendPasswordReset(email);
+                  markSent();
+                  setResent(true);
+                  setCode("");
+                  setFormError(null);
+                } catch (error) {
+                  fail(explain(error));
+                } finally {
+                  setPending(false);
+                }
+              }}
+            >
+              {cooldown > 0 ? t("auth.resendIn", { seconds: cooldown }) : resent ? t("auth.resent") : t("auth.codeResend")}
+            </button>
+          </div>
+        ) : screen === "form" && mode === "login" ? (
           <div className="auth-links">
             <button
               className="link"

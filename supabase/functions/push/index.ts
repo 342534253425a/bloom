@@ -120,12 +120,17 @@ async function deliver(subs: Sub[], msg: Msg) {
   await getConfig();
   await Promise.all(
     subs.map(async (s) => {
+      const host = s.endpoint.split("/")[2] ?? "?";
       try {
-        await webpush.sendNotification(s.sub, JSON.stringify(msg), { TTL: 6 * 3600, urgency: "normal" });
+        // "high" makes phones wake up for it even in battery-saving mode.
+        const res = await webpush.sendNotification(s.sub, JSON.stringify(msg), { TTL: 6 * 3600, urgency: "high" });
+        await db.from("push_log").insert({ user_id: s.user_id, host, tag: msg.tag, status: res.statusCode, error: null });
       } catch (error) {
-        const status = (error as { statusCode?: number }).statusCode;
+        const status = (error as { statusCode?: number }).statusCode ?? null;
+        const text = String((error as { body?: string }).body ?? (error as Error).message ?? error).slice(0, 300);
+        await db.from("push_log").insert({ user_id: s.user_id, host, tag: msg.tag, status, error: text });
         if (status === 404 || status === 410) await db.from("push_subscriptions").delete().eq("endpoint", s.endpoint);
-        else console.warn("push failed", status, (error as Error).message);
+        else console.warn("push failed", status, text);
       }
     }),
   );
@@ -392,6 +397,12 @@ Deno.serve(async (req) => {
       return Response.json({ sent: subs.length }, { headers: cors });
     }
     if (req.headers.get("x-bloom-hook") !== cfg.hook_secret) return new Response("forbidden", { status: 403, headers: cors });
+    if (body.type === "test_all") {
+      const { data } = await db.from("push_subscriptions").select("*");
+      const subs = (data ?? []) as Sub[];
+      for (const sub of subs) await deliver([sub], { title: "Bloom 🌱", body: say(sub.prefs?.lang ?? sub.lang ?? "en", "test"), url: "/notifications", tag: "test" });
+      return Response.json({ sent: subs.length }, { headers: cors });
+    }
     if (body.type === "item") await itemEvent(body.op, body.record, body.old ?? null, body.actor ?? null);
     else if (body.type === "tick") await tick();
     return Response.json({ ok: true }, { headers: cors });

@@ -1023,3 +1023,10 @@
   font-size: 13.5px;
   max-width: 240px;
 }
+
+/* A tile keeps its own size even inside rows that stretch their child spans. */
+.tile {
+  flex: 0 0 auto !important;
+  display: grid !important;
+  min-width: 0;
+}

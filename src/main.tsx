@@ -19,6 +19,7 @@ import "@/app/styles/auth.css";
 import "@/app/styles/app.css";
 import "@/app/styles/couple.css";
 import "@/app/styles/learn.css";
+import "@/app/styles/welcome.css";
 
 // After a new deploy an open tab may ask for files that no longer exist: fetch the new version once.
 window.addEventListener("vite:preloadError", () => {

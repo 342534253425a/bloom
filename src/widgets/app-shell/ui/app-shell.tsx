@@ -13,6 +13,7 @@ import { Art, Tile, at, type Tone } from "@/shared/ui/kit";
 import { Sheet } from "@/shared/ui/sheet";
 import { LockScreen } from "./lock-screen";
 import { Onboarding } from "./onboarding";
+import { NotifyAsk } from "@/features/notify/notify-ask";
 import { NotifyHost } from "@/features/notify/notify-host";
 import { useInbox } from "@/entities/notify";
 import { RecoverySheet } from "./recovery-sheet";
@@ -201,6 +202,7 @@ export function AppShell() {
       </Sheet>
 
       <RecoverySheet />
+      <NotifyAsk />
       {prefs && !prefs.onboarded ? <Onboarding onDone={() => void savePrefs(user.id, { onboarded: true })} /> : null}
     </div>
   );

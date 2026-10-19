@@ -248,7 +248,7 @@ export function FocusTogether() {
             <Art name="c-headphones" />
           </div>
           <div className="focus2-copy">
-            <strong className="num focus2-time">{running ? formatClock(remaining) : "👥"}</strong>
+            {running ? <strong className="num focus2-time">{formatClock(remaining)}</strong> : <strong className="focus2-title">{t("couple.focus.withName", { name: couple.partner?.name || "♥" })}</strong>}
             <small>
               {running
                 ? `${data!.phase === "break" ? t("couple.focus.onBreak") : t("couple.focus.focusing")} · ${t("couple.focus.startedBy", { name: starter })}`
