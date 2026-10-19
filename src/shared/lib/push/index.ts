@@ -56,17 +56,14 @@ export type PushSnapshot = {
 };
 
 async function save(sub: PushSubscription, snapshot: PushSnapshot) {
-  const { error } = await supabase.from("push_subscriptions").upsert(
-    {
-      endpoint: sub.endpoint,
-      sub: sub.toJSON(),
-      tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      lang: snapshot.lang,
-      prefs: snapshot,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "endpoint" },
-  );
+  // The server moves this device to the signed-in account even if another account used it before.
+  const { error } = await supabase.rpc("claim_push_subscription", {
+    p_endpoint: sub.endpoint,
+    p_sub: sub.toJSON(),
+    p_tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    p_lang: snapshot.lang,
+    p_prefs: snapshot,
+  });
   if (error) throw error;
 }
 
