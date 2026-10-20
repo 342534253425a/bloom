@@ -25,7 +25,7 @@
 }
 @media (min-width: 1100px) {
   .welcome-bg {
-    background-image: url("/img/welcome-wide.webp");
+    background-image: url("/img/welcome-wide-mascot.webp");
     background-position: center;
   }
 }
