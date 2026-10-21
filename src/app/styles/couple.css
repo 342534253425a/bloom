@@ -2269,3 +2269,11 @@
   font-weight: 600;
   color: var(--muted);
 }
+
+/* Phones: no live blur under the chat header — it is redrawn on every scroll and costs smoothness. */
+@media (max-width: 959px) {
+  .chat-head {
+    backdrop-filter: none;
+    background: #fff;
+  }
+}

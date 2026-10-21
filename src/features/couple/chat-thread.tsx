@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { inFront, openOutside } from "@/shared/lib/native";
@@ -27,12 +27,33 @@ const moreReactions = ["😂", "😮", "😢", "🥺", "🙏", "🎉", "🤔", "
 type Msg = CoupleItem<MessageData>;
 type Pending = { file: File; url: string; video: boolean };
 
+/** Date formatters are slow to create, so each one is made once per language and reused for every message. */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+function formatter(kind: "day" | "time" | "date") {
+  const key = `${localeOf()}:${kind}`;
+  let made = formatters.get(key);
+  if (!made) {
+    const options: Intl.DateTimeFormatOptions =
+      kind === "day" ? { weekday: "long", day: "numeric", month: "long" } : kind === "time" ? { hour: "2-digit", minute: "2-digit" } : { day: "numeric", month: "long" };
+    made = new Intl.DateTimeFormat(localeOf(), options);
+    formatters.set(key, made);
+  }
+  return made;
+}
+
 function dayLabel(iso: string) {
-  return new Intl.DateTimeFormat(localeOf(), { weekday: "long", day: "numeric", month: "long" }).format(new Date(iso));
+  return formatter("day").format(new Date(iso));
 }
 
 function timeLabel(iso: string) {
-  return new Intl.DateTimeFormat(localeOf(), { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+  return formatter("time").format(new Date(iso));
+}
+
+/** A function that always calls the latest version of a handler but never changes itself (so memoized rows don't redraw). */
+function useStable<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+  const ref = useRef(fn);
+  ref.current = fn;
+  return useCallback((...args: A) => ref.current(...args), []);
 }
 
 /** "today at 15:56", like the bottom of Telegram's message menu. */
@@ -43,7 +64,7 @@ function whenLabel(t: (key: string, options?: Record<string, unknown>) => string
   const yesterday = new Date(Date.now() - 86_400_000);
   if (date.toDateString() === today.toDateString()) return t("people.chat.todayAt", { time });
   if (date.toDateString() === yesterday.toDateString()) return t("people.chat.yesterdayAt", { time });
-  return t("people.chat.at", { date: new Intl.DateTimeFormat(localeOf(), { day: "numeric", month: "long" }).format(date), time });
+  return t("people.chat.at", { date: formatter("date").format(date), time });
 }
 
 /** "Outgoing video call · 5:12", "Missed call"… seen from this person's side. */
@@ -76,7 +97,6 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
   const all = conv.useItems<MessageData>("msg");
   const partnerRead = conv.useItem<{ seen?: string }>(`read:${conv.peer.id}`);
   const myRead = conv.useItem<{ seen?: string }>(`read:${me ?? ""}`);
-  const [text, setText] = useState(() => localStorage.getItem(draftKey) ?? "");
   const [stickerOpen, setStickerOpen] = useState(false);
   const [menu, setMenu] = useState<{ id: string; x: number; y: number; more: boolean } | null>(null);
   const [replyTo, setReplyTo] = useState<string | null>(null);
@@ -91,12 +111,9 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
   const [forwarding, setForwarding] = useState<string[] | null>(null);
   const [pending, setPending] = useState<Pending[] | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [linkTopic, setLinkTopic] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
-  const input = useRef<HTMLTextAreaElement>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
+  const composer = useRef<ComposerApi | null>(null);
   const typingTimer = useRef(0);
-  const lastTypingSent = useRef(0);
   const unreadFrom = useRef<string | null | undefined>(undefined);
 
   const messages = useMemo(() => [...all].sort(messageOrder), [all]);
@@ -105,7 +122,6 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
   const lastPartner = [...messages].reverse().find((message) => message.author !== me);
   const pinned = [...messages].filter((message) => message.data.pinned).sort((a, b) => (b.data.pinned ?? "").localeCompare(a.data.pinned ?? ""))[0];
   const unreadBelow = messages.filter((message) => message.author !== me && message.created_at > (myRead?.data.seen ?? "")).length;
-  const composeLink = !editing && findLinks(text).length > 0;
 
   // Remember where the unread messages started when the chat opened, for the "new messages" divider.
   if (unreadFrom.current === undefined && me && all.length) {
@@ -122,16 +138,6 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
       }),
     [conv],
   );
-
-  // Keep the draft between visits.
-  useEffect(() => {
-    if (editing) return;
-    const timer = window.setTimeout(() => {
-      if (text) localStorage.setItem(draftKey, text);
-      else localStorage.removeItem(draftKey);
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [text, editing, draftKey]);
 
   // Stick to the bottom when new messages arrive, unless the person scrolled up to read.
   useLayoutEffect(() => {
@@ -200,44 +206,53 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
     window.setTimeout(() => setFlash(null), 1600);
   }
 
-  function startEdit(message: Msg) {
+  const startEdit = useStable((message: Msg) => {
     setEditing(message.id);
     setReplyTo(null);
-    setText(message.data.text ?? "");
-    window.setTimeout(() => input.current?.focus(), 30);
+    composer.current?.setText(message.data.text ?? "");
+    window.setTimeout(() => composer.current?.focus(), 30);
+  });
+
+  function stopEditing() {
+    setEditing(null);
+    composer.current?.setText(localStorage.getItem(draftKey) ?? "");
   }
 
-  async function send(extra: Partial<Pick<MessageData, "sticker" | "voice" | "photo" | "video" | "topic">> = {}, caption: string | null = null) {
+  /** Text from the box: a new message, or the edited one. */
+  const sendText = useStable(async (body: string, topic: string | null) => {
     if (editing) {
-      if (text.trim()) await edit(conv, editing, text);
-      setEditing(null);
-      setText(localStorage.getItem(draftKey) ?? "");
+      if (body.trim()) await edit(conv, editing, body);
+      stopEditing();
       return;
     }
-    const attachment = extra.sticker || extra.voice || extra.photo || extra.video;
-    const body = attachment ? caption : text;
-    if (!body?.trim() && !attachment) return;
-    if (!attachment) {
-      setText("");
-      setLinkTopic(null);
-    }
+    if (!body.trim()) return;
     setStickerOpen(false);
     const reply = replyTo;
     setReplyTo(null);
     haptic(6);
     setAtBottom(true);
-    await sendTo(conv, body, { ...extra, ...(!attachment && composeLink && linkTopic ? { topic: linkTopic } : {}), replyTo: reply });
+    await sendTo(conv, body, { ...(topic ? { topic } : {}), replyTo: reply });
+  });
+
+  /** Stickers, voice, photos and videos (with an optional caption). */
+  async function send(extra: Partial<Pick<MessageData, "sticker" | "voice" | "photo" | "video" | "topic">>, caption: string | null = null) {
+    setStickerOpen(false);
+    const reply = replyTo;
+    setReplyTo(null);
+    haptic(6);
+    setAtBottom(true);
+    await sendTo(conv, caption, { ...extra, replyTo: reply });
   }
 
   /** Photos and videos: from the clip button, Ctrl+V, or dropped on the chat. */
-  function attach(files: File[]) {
+  const attach = useStable((files: File[]) => {
     const media = files.filter(isMedia);
     if (!media.length) return;
     const tooBig = media.filter((file) => file.size > MAX_FILE);
     if (tooBig.length) toast(t("people.chat.tooBig"), "c-frown");
     const ok = media.filter((file) => file.size <= MAX_FILE).slice(0, 10);
     if (ok.length) setPending(ok.map((file) => ({ file, url: URL.createObjectURL(file), video: file.type.startsWith("video/") })));
-  }
+  });
 
   async function sendPending(items: Pending[], caption: string, topic: string | null) {
     setPending(null);
@@ -261,7 +276,8 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
           await send({ photo: { path, width: image.width, height: image.height }, topic }, words);
         }
       }
-      if (caption.trim() && text.trim() === caption.trim()) setText("");
+      // The typed text went out as the caption.
+      if (caption.trim() && composer.current?.getText().trim() === caption.trim()) composer.current.setText("");
     } catch {
       toast(t("couple.chat.uploadFailed"), "c-frown");
     } finally {
@@ -270,20 +286,44 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
     }
   }
 
-  function openMenu(id: string, x: number, y: number) {
+  const openMenu = useStable((id: string, x: number, y: number) => {
     if (selected) return;
     haptic(10);
     setMenu({ id, x, y, more: false });
-  }
+  });
 
-  function toggleSelect(id: string) {
+  const toggleSelect = useStable((id: string) => {
     setSelected((current) => {
       const next = new Set(current ?? []);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next.size ? next : null;
     });
-  }
+  });
+
+  const replyToMessage = useStable((id: string) => {
+    setReplyTo(id);
+    setEditing(null);
+    composer.current?.focus();
+  });
+  const jump = useStable((id: string) => jumpTo(id));
+  const openPhoto = useStable((url: string) => setViewer(url));
+  const voice = useStable(async (recording: { blob: Blob; duration: number; mime: string }) => {
+    try {
+      const path = await uploadCoupleFile(conv.key, "voice", recording.blob);
+      await send({ voice: { path, duration: recording.duration, mime: recording.mime } });
+    } catch {
+      toast(t("couple.chat.uploadFailed"), "c-frown");
+    }
+  });
+  const escape = useStable(() => {
+    setReplyTo(null);
+    if (editing) stopEditing();
+  });
+  const editLast = useStable(() => {
+    if (lastMine?.data.text) startEdit(lastMine);
+  });
+  const toggleStickers = useStable(() => setStickerOpen((open) => !open));
 
   async function copyText(ids: string[]) {
     const words = ids
@@ -396,69 +436,30 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
           </div>
         ) : null}
         {messages.map((message) => {
-          const mine = message.author === me;
           const day = dayLabel(message.created_at);
           const showDay = day !== lastDay;
           lastDay = day;
-          const quoted = message.data.replyTo ? byId.get(message.data.replyTo) : undefined;
-          const reacted = Object.values(message.data.reactions ?? {});
-          const grouped = [...new Set(reacted)].map((emoji) => ({ emoji, count: reacted.filter((item) => item === emoji).length }));
-          const media = message.data.sticker ? "is-sticker" : message.data.photo || message.data.video ? "is-photo" : "";
-          const link = message.data.text && !message.data.photo && !message.data.video ? mainLink(message.data.text) : null;
+          const mine = message.author === me;
           return (
-            <div key={message.id}>
-              {showDay ? <p className="chat-day">{day}</p> : null}
-              {message.id === unreadFrom.current ? <p className="chat-unread">{t("couple.chat.newMessages")}</p> : null}
-              <Bubble
-                id={message.id}
-                mine={mine}
-                flash={flash === message.id}
-                selected={selected?.has(message.id) ?? null}
-                onTap={() => selected && toggleSelect(message.id)}
-                onReply={() => {
-                  setReplyTo(message.id);
-                  setEditing(null);
-                  input.current?.focus();
-                }}
-                onMenu={(x, y) => openMenu(message.id, x, y)}
-              >
-                <div className={`chat-bubble ${mine ? "is-mine" : ""} ${media} ${link && link.kind !== "web" ? "has-embed" : ""}`}>
-                  {message.data.forwarded ? (
-                    <small className="chat-forwarded">↪ {t("people.chat.forwardedFrom", { name: message.data.forwarded.name ?? t("people.you") })}</small>
-                  ) : null}
-                  {quoted || message.data.replyTo ? (
-                    <button type="button" className="chat-quote" onClick={(event) => { event.stopPropagation(); if (quoted) jumpTo(quoted.id); }}>
-                      <b>{quoted ? (quoted.author === me ? t("couple.you") : name) : "…"}</b>
-                      <span>{preview(t, quoted)}</span>
-                    </button>
-                  ) : null}
-                  {message.data.call ? <CallRecord call={message.data.call} mine={mine} conv={conv} /> : null}
-                  {message.data.sticker ? <Art name={message.data.sticker} /> : null}
-                  {message.data.photo ? <Photo path={message.data.photo.path} ratio={message.data.photo.width / message.data.photo.height} onOpen={setViewer} /> : null}
-                  {message.data.video ? <VideoNote path={message.data.video.path} ratio={message.data.video.width / message.data.video.height} /> : null}
-                  {message.data.voice ? <VoicePlayer path={message.data.voice.path} duration={message.data.voice.duration} tone={mine ? "dark" : "light"} /> : null}
-                  {link ? <LinkCard link={link} /> : null}
-                  {message.data.text ? <span className="chat-text">{linkify(message.data.text)}</span> : null}
-                  <small className="chat-meta">
-                    {message.data.topic ? `${topicIcon(message.data.topic)} ` : ""}
-                    {message.data.pinned ? "📌 " : ""}
-                    {message.data.edited ? `${t("couple.chat.edited")} · ` : ""}
-                    {timeLabel(message.created_at)}
-                    {mine ? (partnerRead?.data.seen && partnerRead.data.seen >= message.created_at ? " ✓✓" : " ✓") : ""}
-                  </small>
-                </div>
-                {grouped.length ? (
-                  <span className="chat-reacts">
-                    {grouped.map((item) => (
-                      <button key={item.emoji} type="button" onClick={(event) => { event.stopPropagation(); void react(conv, message.id, item.emoji); }}>
-                        {item.emoji}
-                        {item.count > 1 ? <small>{item.count}</small> : null}
-                      </button>
-                    ))}
-                  </span>
-                ) : null}
-              </Bubble>
-            </div>
+            <MessageRow
+              key={message.id}
+              message={message}
+              mine={mine}
+              quoted={message.data.replyTo ? byId.get(message.data.replyTo) : undefined}
+              day={showDay ? day : null}
+              unreadHere={message.id === unreadFrom.current}
+              flash={flash === message.id}
+              selected={selected ? selected.has(message.id) : null}
+              seen={mine && Boolean(partnerRead?.data.seen && partnerRead.data.seen >= message.created_at)}
+              me={me}
+              peerName={name}
+              conv={conv}
+              onTap={toggleSelect}
+              onReply={replyToMessage}
+              onMenu={openMenu}
+              onJump={jump}
+              onOpenPhoto={openPhoto}
+            />
           );
         })}
         {typing ? (
@@ -502,7 +503,7 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
               )}
             </div>
             <div className="chat-menu-card">
-              <button type="button" onClick={() => { setReplyTo(menuMessage.id); setEditing(null); setMenu(null); input.current?.focus(); }}>
+              <button type="button" onClick={() => { replyToMessage(menuMessage.id); setMenu(null); }}>
                 <Glyph name="reply" size={20} /> {t("couple.chat.reply")}
               </button>
               {menuMessage.author === me && menuMessage.data.text ? (
@@ -565,92 +566,33 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
             <b>{editing ? t("couple.chat.editing") : t("couple.chat.replyingTo", { name: byId.get(replyTo!)?.author === me ? t("couple.you") : name })}</b>
             <small>{preview(t, byId.get((editing ?? replyTo)!))}</small>
           </span>
-          <button type="button" className="icon-btn" aria-label={t("common.cancel")} onClick={() => { setReplyTo(null); if (editing) { setEditing(null); setText(localStorage.getItem(draftKey) ?? ""); } }}>
+          <button type="button" className="icon-btn" aria-label={t("common.cancel")} onClick={escape}>
             <Glyph name="close" size={16} />
           </button>
         </div>
       ) : null}
 
-      {composeLink ? <TopicChips value={linkTopic} onChange={setLinkTopic} /> : null}
-
-      <div className="chat-compose">
-        <button type="button" className={`icon-btn ${stickerOpen ? "is-sky" : ""}`} aria-label={t("couple.chat.stickers")} onClick={() => setStickerOpen(!stickerOpen)}>
-          <Glyph name="sparkle" size={20} />
-        </button>
-        <button type="button" className="icon-btn" aria-label={t("people.chat.attach")} title={t("people.chat.attach")} disabled={uploading} onClick={() => fileInput.current?.click()}>
-          {uploading ? <span className="spinner" /> : <Glyph name="image" size={20} />}
-        </button>
-        <input ref={fileInput} type="file" accept="image/*,video/*" multiple hidden onChange={(event) => { attach([...(event.target.files ?? [])]); event.target.value = ""; }} />
-        <span className="input">
-          <textarea
-            ref={input}
-            rows={1}
-            value={text}
-            placeholder={t("couple.chat.placeholder")}
-            maxLength={4000}
-            onPaste={(event) => {
-              // Ctrl+V with a picture or video: show it ready to send, like Telegram.
-              const files = [...event.clipboardData.files].filter(isMedia);
-              if (files.length) {
-                event.preventDefault();
-                attach(files);
-              }
-            }}
-            onChange={(event) => {
-              setText(event.target.value);
-              if (Date.now() - lastTypingSent.current > 2500) {
-                lastTypingSent.current = Date.now();
-                void conv.signal("typing", { typing: true });
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void send();
-              }
-              if (event.key === "Escape") {
-                setReplyTo(null);
-                setEditing(null);
-              }
-              if (event.key === "ArrowUp" && !text && lastMine?.data.text) {
-                event.preventDefault();
-                startEdit(lastMine);
-              }
-            }}
-          />
-        </span>
-        {text.trim() || editing ? (
-          <button
-            type="button"
-            className="icon-btn is-solid"
-            aria-label={t("couple.love.send")}
-            // Keep the focus (and the keyboard) in the text box after sending, like Telegram.
-            onPointerDown={(event) => event.preventDefault()}
-            onClick={() => void send()}
-          >
-            <Glyph name={editing ? "check" : "arrowUp"} size={20} stroke={2.6} />
-          </button>
-        ) : (
-          <RecordButton
-            compact
-            onDone={async (recording) => {
-              try {
-                const path = await uploadCoupleFile(conv.key, "voice", recording.blob);
-                await send({ voice: { path, duration: recording.duration, mime: recording.mime } });
-              } catch {
-                toast(t("couple.chat.uploadFailed"), "c-frown");
-              }
-            }}
-          />
-        )}
-      </div>
+      <Composer
+        api={composer}
+        conv={conv}
+        draftKey={draftKey}
+        editing={Boolean(editing)}
+        uploading={uploading}
+        stickerOpen={stickerOpen}
+        onToggleStickers={toggleStickers}
+        onAttach={attach}
+        onSendText={sendText}
+        onVoice={voice}
+        onEscape={escape}
+        onEditLast={editLast}
+      />
 
       {dragging ? <div className="chat-drop">{t("people.chat.dropHere")}</div> : null}
 
       {pending ? (
         <AttachSheet
           items={pending}
-          initialCaption={text}
+          initialCaption={composer.current?.getText() ?? ""}
           onCancel={() => {
             for (const item of pending) URL.revokeObjectURL(item.url);
             setPending(null);
@@ -678,6 +620,234 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
     </div>
   );
 }
+
+type ComposerApi = { getText: () => string; setText: (text: string) => void; focus: () => void };
+
+/**
+ * The text box with its buttons. It keeps the typed text to itself, so typing redraws only this small part
+ * and never the whole conversation (that was what made typing lag on phones).
+ */
+const Composer = memo(function Composer({
+  api,
+  conv,
+  draftKey,
+  editing,
+  uploading,
+  stickerOpen,
+  onToggleStickers,
+  onAttach,
+  onSendText,
+  onVoice,
+  onEscape,
+  onEditLast,
+}: {
+  api: MutableRefObject<ComposerApi | null>;
+  conv: Conversation;
+  draftKey: string;
+  editing: boolean;
+  uploading: boolean;
+  stickerOpen: boolean;
+  onToggleStickers: () => void;
+  onAttach: (files: File[]) => void;
+  onSendText: (text: string, topic: string | null) => Promise<void>;
+  onVoice: (recording: { blob: Blob; duration: number; mime: string }) => Promise<void>;
+  onEscape: () => void;
+  onEditLast: () => void;
+}) {
+  const { t } = useTranslation();
+  const [text, setText] = useState(() => localStorage.getItem(draftKey) ?? "");
+  const [linkTopic, setLinkTopic] = useState<string | null>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const lastTypingSent = useRef(0);
+  const textRef = useRef(text);
+  textRef.current = text;
+  api.current = {
+    getText: () => textRef.current,
+    setText,
+    focus: () => input.current?.focus(),
+  };
+  const hasLink = !editing && findLinks(text).length > 0;
+
+  // Keep the draft between visits.
+  useEffect(() => {
+    if (editing) return;
+    const timer = window.setTimeout(() => {
+      if (text) localStorage.setItem(draftKey, text);
+      else localStorage.removeItem(draftKey);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [text, editing, draftKey]);
+
+  const submit = () => {
+    const body = text;
+    const topic = hasLink ? linkTopic : null;
+    if (!editing) {
+      if (!body.trim()) return;
+      setText("");
+      setLinkTopic(null);
+    }
+    void onSendText(body, topic);
+  };
+
+  return (
+    <>
+      {hasLink ? <TopicChips value={linkTopic} onChange={setLinkTopic} /> : null}
+      <div className="chat-compose">
+        <button type="button" className={`icon-btn ${stickerOpen ? "is-sky" : ""}`} aria-label={t("couple.chat.stickers")} onClick={onToggleStickers}>
+          <Glyph name="sparkle" size={20} />
+        </button>
+        <button type="button" className="icon-btn" aria-label={t("people.chat.attach")} title={t("people.chat.attach")} disabled={uploading} onClick={() => fileInput.current?.click()}>
+          {uploading ? <span className="spinner" /> : <Glyph name="image" size={20} />}
+        </button>
+        <input ref={fileInput} type="file" accept="image/*,video/*" multiple hidden onChange={(event) => { onAttach([...(event.target.files ?? [])]); event.target.value = ""; }} />
+        <span className="input">
+          <textarea
+            ref={input}
+            rows={1}
+            value={text}
+            placeholder={t("couple.chat.placeholder")}
+            maxLength={4000}
+            onPaste={(event) => {
+              // Ctrl+V with a picture or video: show it ready to send, like Telegram.
+              const files = [...event.clipboardData.files].filter(isMedia);
+              if (files.length) {
+                event.preventDefault();
+                onAttach(files);
+              }
+            }}
+            onChange={(event) => {
+              setText(event.target.value);
+              if (Date.now() - lastTypingSent.current > 2500) {
+                lastTypingSent.current = Date.now();
+                void conv.signal("typing", { typing: true });
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                submit();
+              }
+              if (event.key === "Escape") onEscape();
+              if (event.key === "ArrowUp" && !text) {
+                event.preventDefault();
+                onEditLast();
+              }
+            }}
+          />
+        </span>
+        {text.trim() || editing ? (
+          <button
+            type="button"
+            className="icon-btn is-solid"
+            aria-label={t("couple.love.send")}
+            // Keep the focus (and the keyboard) in the text box after sending, like Telegram.
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={submit}
+          >
+            <Glyph name={editing ? "check" : "arrowUp"} size={20} stroke={2.6} />
+          </button>
+        ) : (
+          <RecordButton compact onDone={onVoice} />
+        )}
+      </div>
+    </>
+  );
+});
+
+/** One message with its day line; memoized, so only the message that changed is drawn again. */
+const MessageRow = memo(function MessageRow({
+  message,
+  mine,
+  quoted,
+  day,
+  unreadHere,
+  flash,
+  selected,
+  seen,
+  me,
+  peerName,
+  conv,
+  onTap,
+  onReply,
+  onMenu,
+  onJump,
+  onOpenPhoto,
+}: {
+  message: Msg;
+  mine: boolean;
+  quoted: Msg | undefined;
+  day: string | null;
+  unreadHere: boolean;
+  flash: boolean;
+  selected: boolean | null;
+  seen: boolean;
+  me: string | null;
+  peerName: string;
+  conv: Conversation;
+  onTap: (id: string) => void;
+  onReply: (id: string) => void;
+  onMenu: (id: string, x: number, y: number) => void;
+  onJump: (id: string) => void;
+  onOpenPhoto: (url: string) => void;
+}) {
+  const { t } = useTranslation();
+  const data = message.data;
+  const reacted = Object.values(data.reactions ?? {});
+  const grouped = [...new Set(reacted)].map((emoji) => ({ emoji, count: reacted.filter((item) => item === emoji).length }));
+  const media = data.sticker ? "is-sticker" : data.photo || data.video ? "is-photo" : "";
+  const link = useMemo(() => (data.text && !data.photo && !data.video ? mainLink(data.text) : null), [data.text, data.photo, data.video]);
+  const text = useMemo(() => (data.text ? linkify(data.text) : null), [data.text]);
+  return (
+    <div>
+      {day ? <p className="chat-day">{day}</p> : null}
+      {unreadHere ? <p className="chat-unread">{t("couple.chat.newMessages")}</p> : null}
+      <Bubble
+        id={message.id}
+        mine={mine}
+        flash={flash}
+        selected={selected}
+        onTap={() => onTap(message.id)}
+        onReply={() => onReply(message.id)}
+        onMenu={(x, y) => onMenu(message.id, x, y)}
+      >
+        <div className={`chat-bubble ${mine ? "is-mine" : ""} ${media} ${link && link.kind !== "web" ? "has-embed" : ""}`}>
+          {data.forwarded ? <small className="chat-forwarded">↪ {t("people.chat.forwardedFrom", { name: data.forwarded.name ?? t("people.you") })}</small> : null}
+          {quoted || data.replyTo ? (
+            <button type="button" className="chat-quote" onClick={(event) => { event.stopPropagation(); if (quoted) onJump(quoted.id); }}>
+              <b>{quoted ? (quoted.author === me ? t("couple.you") : peerName) : "…"}</b>
+              <span>{preview(t, quoted)}</span>
+            </button>
+          ) : null}
+          {data.call ? <CallRecord call={data.call} mine={mine} conv={conv} /> : null}
+          {data.sticker ? <Art name={data.sticker} /> : null}
+          {data.photo ? <Photo path={data.photo.path} ratio={data.photo.width / data.photo.height} onOpen={onOpenPhoto} /> : null}
+          {data.video ? <VideoNote path={data.video.path} ratio={data.video.width / data.video.height} /> : null}
+          {data.voice ? <VoicePlayer path={data.voice.path} duration={data.voice.duration} tone={mine ? "dark" : "light"} /> : null}
+          {link ? <LinkCard link={link} /> : null}
+          {text ? <span className="chat-text">{text}</span> : null}
+          <small className="chat-meta">
+            {data.topic ? `${topicIcon(data.topic)} ` : ""}
+            {data.pinned ? "📌 " : ""}
+            {data.edited ? `${t("couple.chat.edited")} · ` : ""}
+            {timeLabel(message.created_at)}
+            {mine ? (seen ? " ✓✓" : " ✓") : ""}
+          </small>
+        </div>
+        {grouped.length ? (
+          <span className="chat-reacts">
+            {grouped.map((item) => (
+              <button key={item.emoji} type="button" onClick={(event) => { event.stopPropagation(); void react(conv, message.id, item.emoji); }}>
+                {item.emoji}
+                {item.count > 1 ? <small>{item.count}</small> : null}
+              </button>
+            ))}
+          </span>
+        ) : null}
+      </Bubble>
+    </div>
+  );
+});
 
 /** Telegram puts the menu at the cursor with the reactions just above it, and keeps all of it on screen. */
 function menuSpot(menu: { x: number; y: number; more: boolean }) {
@@ -885,7 +1055,7 @@ function Bubble({
         press.current = window.setTimeout(() => {
           start.current = null;
           onMenu(clientX, clientY);
-        }, 480);
+        }, 360);
       }}
       onPointerMove={(event) => {
         if (!start.current) return;
