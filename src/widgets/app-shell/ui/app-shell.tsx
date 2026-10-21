@@ -179,7 +179,7 @@ export function AppShell() {
             to={tab.to}
             glyph={tab.glyph}
             label={t(`nav.${tab.key}`)}
-            active={dockActive(path, tab.to) || (tab.to === "/spaces" && spaces.some((space) => isActive(path, space.to)))}
+            active={dockActive(path, tab.to) || (tab.to === "/spaces" && !dockTabs.some((other) => other.to !== "/" && other.to !== "/spaces" && isActive(path, other.to)) && spaces.some((space) => isActive(path, space.to)))}
           />
         ))}
       </nav>

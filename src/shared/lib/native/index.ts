@@ -239,6 +239,7 @@ export async function startShell() {
 
 /** Shows "Update Bloom" only while GitHub has a build newer than the one installed (each release is numbered like the build). */
 async function checkAndroidUpdate(App: typeof import("@capacitor/app").App) {
+  if (appUpdate.state === "downloading") return;
   try {
     const [{ build }, release] = await Promise.all([
       App.getInfo(),
@@ -289,10 +290,36 @@ export function getAppUpdate(): AppUpdate {
   return appUpdate;
 }
 
-/** Installs the new version: restarts the Windows app, or downloads the new APK on Android. */
+/** Installs the new version: restarts the Windows app; on Android downloads the APK inside Bloom and opens Android's "Update" prompt. */
 export function installAppUpdate() {
   if (desktop?.installUpdate) desktop.installUpdate();
-  else if (shell === "android") void openOutside(DOWNLOADS.android);
+  else if (shell === "android") void installAndroidUpdate();
+}
+
+type BloomUpdate = {
+  install(options: { url: string }): Promise<void>;
+  addListener(event: "progress", listener: (data: { percent: number }) => void): Promise<{ remove: () => Promise<void> }>;
+};
+
+async function installAndroidUpdate() {
+  const capacitor = (window as unknown as { Capacitor?: { isPluginAvailable?: (name: string) => boolean } }).Capacitor;
+  // Older Android builds without the updater: download through the browser as before.
+  if (!capacitor?.isPluginAvailable?.("BloomUpdate")) return void openOutside(DOWNLOADS.android);
+  if (appUpdate.state === "downloading") return;
+  const { registerPlugin } = await import("@capacitor/core");
+  const plugin = registerPlugin<BloomUpdate>("BloomUpdate");
+  const ready = appUpdate;
+  setAppUpdate({ ...ready, state: "downloading", percent: 0 });
+  const listener = plugin.addListener("progress", ({ percent }) => setAppUpdate({ ...ready, state: "downloading", percent }));
+  try {
+    await plugin.install({ url: DOWNLOADS.android });
+  } catch {
+    /* not allowed to install, or the download failed: the button stays for another try */
+  } finally {
+    void listener.then((handle) => handle.remove());
+    // Android shows its own "Update" prompt now; if it's cancelled, the button is still here.
+    setAppUpdate(ready);
+  }
 }
 
 /** Development only: show the "Update Bloom" button without a real update. */
