@@ -2,7 +2,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("bloomDesktop", {
-  version: "5",
+  version: "6",
   openExternal: (url) => ipcRenderer.send("bloom:open-external", String(url)),
   notify: (input) => ipcRenderer.send("bloom:notify", input),
   dismiss: (key) => ipcRenderer.send("bloom:dismiss", String(key)),
@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld("bloomDesktop", {
   },
   /** Version "5": switch the shared screen's sound (computer / Bloom) without choosing the screen again. */
   setScreenSound: (sound) => ipcRenderer.invoke("bloom:screen-sound", sound),
+  /** Version "6": keep Bloom's window above all others (in a call). */
+  setOnTop: (on) => ipcRenderer.invoke("bloom:on-top", Boolean(on)),
   onAction: (listener) => {
     const handler = (_event, action, payload) => listener(String(action), payload);
     ipcRenderer.on("bloom:action", handler);

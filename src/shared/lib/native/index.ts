@@ -48,6 +48,8 @@ type DesktopBridge = {
   onPickScreen?: (listener: (sources: ScreenSource[]) => Promise<{ id: string; audio: boolean | ScreenSound } | null>) => () => void;
   /** Version "5": computer sound without Bloom's own, and switching the sound while sharing. */
   setScreenSound?: (sound: ScreenSound) => Promise<boolean>;
+  /** Version "6": keep the window above all others. */
+  setOnTop?: (on: boolean) => Promise<boolean>;
   setUnread: (count: number) => void;
   setTitleBar: (colors: { color: string; symbol: string }) => void;
   getAutostart: () => Promise<boolean>;

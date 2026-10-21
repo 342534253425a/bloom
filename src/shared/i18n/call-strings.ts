@@ -44,6 +44,8 @@ export const callStrings = {
   pickScreens: ["Screens", "Экраны", "屏幕"],
   pickWindows: ["Windows", "Окна", "窗口"],
   withSound: ["With computer sound", "Со звуком компьютера", "包含电脑声音"],
+  onTop: ["Keep on top of all windows", "Поверх всех окон", "置顶于所有窗口"],
+  onTopOff: ["Stop keeping on top", "Больше не поверх окон", "取消置顶"],
   soundPc: ["Computer sound", "Звук компьютера", "电脑声音"],
   soundPcHint: ["Videos, games, music — without Bloom", "Видео, игры, музыка — без Bloom", "视频、游戏、音乐——不含 Bloom"],
   soundBloom: ["Bloom sound", "Звук Bloom", "Bloom 声音"],

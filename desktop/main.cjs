@@ -399,6 +399,14 @@ function audioFor(sound) {
   return {};
 }
 
+/** "Keep on top" in a call: Bloom's window stays above every other window (and full-screen apps). */
+ipcMain.handle("bloom:on-top", (event, on) => {
+  if (!fromBloom(event) || !win) return false;
+  win.setAlwaysOnTop(Boolean(on), "screen-saver");
+  if (on && (win.isMinimized() || !win.isVisible())) show();
+  return win.isAlwaysOnTop();
+});
+
 ipcMain.handle("bloom:screen-sound", (event, sound) => {
   if (!fromBloom(event) || !lastSourceId) return false;
   pendingSound = soundOf(sound);

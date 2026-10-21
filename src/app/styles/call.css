@@ -567,19 +567,15 @@
   color: var(--muted);
 }
 
-/* The partner's camera over their shared screen, like a streamer's face cam. */
-.call-streamer {
-  position: absolute;
-  z-index: 1;
+/* Small pictures over the big one: the first bottom-right, the next bottom-left, then top-right. */
+.call-self.slot-1 {
+  right: auto;
   left: 16px;
-  bottom: 16px;
-  width: clamp(120px, 22%, 260px);
-  aspect-ratio: 4 / 3;
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-  border: 2px solid rgba(255, 255, 255, 0.5);
 }
-.call-remote .call-streamer video {
-  object-fit: cover;
+.call-self.slot-2 {
+  bottom: auto;
+  top: 96px;
+}
+.call-mini-btn.is-on {
+  background: #36c89c;
 }

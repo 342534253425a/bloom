@@ -38,6 +38,8 @@ export type CallState = {
   minimized: boolean;
   emoji: string[];
   local: MediaStream | null;
+  /** Your own shared screen, shown as its own picture. */
+  localScreen: MediaStream | null;
   media: RemoteMedia | null;
 };
 
@@ -61,6 +63,7 @@ const initial: CallState = {
   minimized: false,
   emoji: [],
   local: null,
+  localScreen: null,
   media: null,
 };
 
@@ -320,7 +323,7 @@ export async function toggleScreen(): Promise<boolean> {
   // The camera stays on next to the screen, like a stream.
   await link?.setTrack("screen", screenTracks.video);
   await link?.setTrack("screenAudio", screenTracks.audio);
-  set({ screen: true, screenSound: canSwitchScreenSound() ? (screenTracks.audio ? lastScreenSound() : { pc: false, bloom: false }) : null, local: localStream() });
+  set({ screen: true, localScreen: new MediaStream([screenTracks.video]), screenSound: canSwitchScreenSound() ? (screenTracks.audio ? lastScreenSound() : { pc: false, bloom: false }) : null, local: localStream() });
   sendMedia();
   return true;
 }
@@ -332,7 +335,7 @@ function stopScreen() {
   screenTracks = null;
   void link?.setTrack("screen", null);
   void link?.setTrack("screenAudio", null);
-  set({ screen: false, screenSound: null, local: localStream() });
+  set({ screen: false, localScreen: null, screenSound: null, local: localStream() });
   sendMedia();
 }
 
@@ -390,7 +393,7 @@ function finish(reason: EndReason, log: boolean) {
   stopMedia();
   window.clearTimeout(ringTimer);
   window.clearTimeout(lostTimer);
-  set({ phase: "ended", ended: reason, local: null, media: null, link: "closed", minimized: false });
+  set({ phase: "ended", ended: reason, local: null, localScreen: null, media: null, link: "closed", minimized: false });
   later(dismissCall, reason === "busy" || reason === "declined" ? 2600 : 1800);
   if (!id) return;
   const item = getItem<CallItem>(id);

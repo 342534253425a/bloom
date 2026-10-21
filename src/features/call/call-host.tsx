@@ -41,6 +41,7 @@ const icons = {
   video: "M3 7h12v10H3zM15 10l6-3v10l-6-3",
   min: "M6 12h12",
   full: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
+  pin: "M9 4h6l-1 6 3 3H7l3-3-1-6zM12 13v7",
   gear: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.3l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2.2-1.3L14.4 3h-4l-.4 2.4a7.6 7.6 0 0 0-2.2 1.3l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.6l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 2.2 1.3l.4 2.4h4l.4-2.4a7.6 7.6 0 0 0 2.2-1.3l2.4 1 2-3.4-2-1.6c.1-.4.1-.9.1-1.3Z",
 };
 
@@ -114,6 +115,67 @@ function useTicker(on: boolean) {
   }, [on]);
 }
 
+/** The floating window can show only one video, so the big picture and the small ones are drawn into one. */
+async function combinedPip(main: HTMLVideoElement, extra: HTMLVideoElement[]) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1280;
+  canvas.height = 720;
+  const g = canvas.getContext("2d")!;
+  const fit = (video: HTMLVideoElement, x: number, y: number, w: number, h: number, cover: boolean) => {
+    const vw = video.videoWidth || 16;
+    const vh = video.videoHeight || 9;
+    const scale = cover ? Math.max(w / vw, h / vh) : Math.min(w / vw, h / vh);
+    const dw = vw * scale;
+    const dh = vh * scale;
+    g.save();
+    g.beginPath();
+    g.rect(x, y, w, h);
+    g.clip();
+    // Your own camera is shown mirrored, like in a mirror: flip it around the middle of its box.
+    if (video.classList.contains("is-mirror")) {
+      g.translate(2 * x + w, 0);
+      g.scale(-1, 1);
+    }
+    g.drawImage(video, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+    g.restore();
+  };
+  const draw = () => {
+    g.fillStyle = "#0f0d18";
+    g.fillRect(0, 0, canvas.width, canvas.height);
+    fit(main, 0, 0, canvas.width, canvas.height, false);
+    extra.slice(0, 3).forEach((video, index) => {
+      const w = 300;
+      const h = 190;
+      const x = index === 1 ? 16 : canvas.width - w - 16;
+      const y = index === 2 ? 16 : canvas.height - h - 16;
+      g.fillStyle = "rgba(255,255,255,0.6)";
+      g.fillRect(x - 3, y - 3, w + 6, h + 6);
+      fit(video, x, y, w, h, true);
+    });
+  };
+  draw();
+  const timer = window.setInterval(draw, 1000 / 30);
+  const out = document.createElement("video");
+  out.muted = true;
+  out.playsInline = true;
+  out.srcObject = canvas.captureStream(30);
+  out.style.cssText = "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;bottom:0;right:0";
+  document.body.appendChild(out);
+  const cleanup = () => {
+    window.clearInterval(timer);
+    (out.srcObject as MediaStream | null)?.getTracks().forEach((track) => track.stop());
+    out.remove();
+  };
+  out.addEventListener("leavepictureinpicture", cleanup, { once: true });
+  try {
+    await out.play();
+    await out.requestPictureInPicture();
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
+}
+
 /* ------------------------------------------------------------------ host */
 
 /** Every call screen: ringing, calling, talking (full or minimized) and "call ended". Mounted once in the app shell. */
@@ -165,8 +227,13 @@ export function CallHost() {
   useEffect(() => {
     const host = window as unknown as { __bloomCallPip?: () => void };
     host.__bloomCallPip = () => {
-      const video = document.querySelector<HTMLVideoElement>(".call-remote video, .call-mini video");
-      if (video && video.srcObject && !document.pictureInPictureElement) void video.requestPictureInPicture?.().catch(() => undefined);
+      if (document.pictureInPictureElement) return;
+      const main = document.querySelector<HTMLVideoElement>(".call-remote video, .call-mini video");
+      if (!main?.srcObject) return;
+      const extra = Array.from(document.querySelectorAll<HTMLVideoElement>(".call-self video")).filter((video) => video.srcObject);
+      // Screen and camera together (like a stream): one floating window with all of them.
+      if (extra.length) void combinedPip(main, extra).catch(() => void main.requestPictureInPicture?.().catch(() => undefined));
+      else void main.requestPictureInPicture?.().catch(() => undefined);
     };
     const back = () => document.pictureInPictureElement && document.visibilityState === "visible" && void document.exitPictureInPicture().catch(() => undefined);
     window.addEventListener("focus", back);
@@ -197,6 +264,19 @@ export function CallHost() {
 
 type T = (key: string, options?: Record<string, unknown>) => string;
 
+/** Every picture in the call: their screen, their camera, your screen, your camera. Any of them can be the big one. */
+type Tile = { key: "their-screen" | "their-cam" | "my-screen" | "my-cam"; stream: MediaStream; mirror?: boolean };
+
+function callTiles(call: CallState): Tile[] {
+  const tiles: Tile[] = [];
+  const has = (stream: MediaStream | null | undefined): stream is MediaStream => Boolean(stream && stream.getVideoTracks().length);
+  if (call.remote.screen && has(call.media?.screen)) tiles.push({ key: "their-screen", stream: call.media!.screen });
+  if (call.remote.cam && has(call.media?.video)) tiles.push({ key: "their-cam", stream: call.media!.video });
+  if (has(call.localScreen)) tiles.push({ key: "my-screen", stream: call.localScreen! });
+  if (call.cam && has(call.local)) tiles.push({ key: "my-cam", stream: call.local!, mirror: true });
+  return tiles;
+}
+
 /** What the partner sends: their shared screen, their camera, or both (then the screen is the big picture). */
 function remotePictures(call: CallState) {
   const screen = call.media && call.remote.screen && call.media.screen.getVideoTracks().length ? call.media.screen : null;
@@ -205,17 +285,32 @@ function remotePictures(call: CallState) {
 }
 
 function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: string; sink: string; onSink: (id: string) => void; t: T }) {
-  const [swapped, setSwapped] = useState(false);
+  const [focus, setFocus] = useState<Tile["key"] | null>(null);
+  const [spots, setSpots] = useState<Partial<Record<Tile["key"], { x: number; y: number }>>>({});
   const [devicesOpen, setDevicesOpen] = useState(false);
+  const [onTop, setOnTop] = useState(false);
+  // The call ends: Bloom stops sitting above the other windows.
+  useEffect(() => {
+    if (onTop && (call.phase === "ended" || call.phase === "idle")) {
+      setOnTop(false);
+      void desktop?.setOnTop?.(false);
+    }
+  }, [call.phase, onTop]);
   const [keyOpen, setKeyOpen] = useState(false);
   const [quality, setQuality] = useState<{ weak: boolean; relayed: boolean } | null>(null);
   const stage = useRef<HTMLDivElement>(null);
   useTicker(call.phase === "active");
 
-  const pictures = remotePictures(call);
-  const remoteHasVideo = Boolean(pictures.main);
-  const localHasVideo = call.cam || call.screen;
   const talking = call.phase === "active" || call.phase === "connecting";
+  // The partner's screen first, then their camera; while calling out, your own camera. A tap on a small one makes it big.
+  const tiles = callTiles(call);
+  const main =
+    tiles.find((tile) => tile.key === focus) ??
+    tiles.find((tile) => tile.key === "their-screen" || tile.key === "their-cam") ??
+    (call.phase === "outgoing" ? tiles.find((tile) => tile.key === "my-cam") : undefined) ??
+    null;
+  const small = talking ? tiles.filter((tile) => tile !== main) : [];
+  const remoteHasVideo = Boolean(main);
   const mobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
 
   const status =
@@ -235,18 +330,9 @@ function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: st
     <div className={`call-screen is-${call.phase} ${remoteHasVideo ? "has-video" : ""}`} role="dialog" aria-label={t("call.video")}>
       <div className="call-backdrop" />
       <div className="call-stage" ref={stage}>
-        {remoteHasVideo && !swapped ? (
+        {main ? (
           <div className="call-remote" onDoubleClick={() => void stage.current?.requestFullscreen?.()}>
-            <Video stream={pictures.main} className={pictures.side ? "is-screen" : ""} />
-            {pictures.side ? (
-              <div className="call-streamer">
-                <Video stream={pictures.side} />
-              </div>
-            ) : null}
-          </div>
-        ) : localHasVideo && (swapped || call.phase === "outgoing") && call.local ? (
-          <div className="call-remote">
-            <Video stream={call.local} mirror={call.cam} />
+            <Video stream={main.stream} mirror={main.mirror} />
           </div>
         ) : (
           <div className="call-avatar">
@@ -275,6 +361,18 @@ function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: st
                 <Icon d={icons.min} size={20} />
               </button>
             ) : null}
+            {desktop?.setOnTop && (talking || call.phase === "outgoing") ? (
+              <button
+                type="button"
+                className={`call-mini-btn ${onTop ? "is-on" : ""}`}
+                aria-label={onTop ? t("call.onTopOff") : t("call.onTop")}
+                title={onTop ? t("call.onTopOff") : t("call.onTop")}
+                aria-pressed={onTop}
+                onClick={() => void desktop?.setOnTop?.(!onTop).then(setOnTop)}
+              >
+                <Icon d={icons.pin} size={20} />
+              </button>
+            ) : null}
             {remoteHasVideo ? (
               <button type="button" className="call-mini-btn" aria-label={t("call.fullscreen")} title={t("call.fullscreen")} onClick={() => void (document.fullscreenElement ? document.exitFullscreen() : stage.current?.requestFullscreen?.())}>
                 <Icon d={icons.full} size={20} />
@@ -290,11 +388,11 @@ function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: st
           </div>
         ) : null}
 
-        {localHasVideo && call.local && talking && remoteHasVideo ? (
-          <SelfView onSwap={() => setSwapped(!swapped)}>
-            {swapped ? <Video stream={pictures.main} /> : <Video stream={call.local} mirror={call.cam} />}
-          </SelfView>
-        ) : null}
+        {small.map((tile, slot) => (
+          <FloatTile key={tile.key} slot={slot} pos={spots[tile.key] ?? null} onMove={(pos) => setSpots((all) => ({ ...all, [tile.key]: pos }))} onTap={() => setFocus(tile.key)}>
+            <Video stream={tile.stream} mirror={tile.mirror} />
+          </FloatTile>
+        ))}
         {call.screen ? (
           <div className="call-sharing">
             <p>🖥 {t("call.sharing")}</p>
@@ -336,9 +434,8 @@ async function accept(video: boolean, t: T) {
   if (error === "media") toast(t("call.media"), "c-frown");
 }
 
-/** Your own picture in a corner; drag it anywhere, tap to swap with the partner's. */
-function SelfView({ children, onSwap }: { children: ReactNode; onSwap: () => void }) {
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+/** A small picture floating over the big one: drag it anywhere, tap it to make it the big one. */
+function FloatTile({ children, slot, pos, onMove, onTap }: { children: ReactNode; slot: number; pos: { x: number; y: number } | null; onMove: (pos: { x: number; y: number }) => void; onTap: () => void }) {
   const drag = useRef<{ dx: number; dy: number; moved: boolean } | null>(null);
   const down = (event: ReactPointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
@@ -348,14 +445,14 @@ function SelfView({ children, onSwap }: { children: ReactNode; onSwap: () => voi
   const move = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!drag.current) return;
     drag.current.moved = true;
-    setPos({ x: event.clientX - drag.current.dx, y: event.clientY - drag.current.dy });
+    onMove({ x: event.clientX - drag.current.dx, y: event.clientY - drag.current.dy });
   };
   const up = () => {
-    if (drag.current && !drag.current.moved) onSwap();
+    if (drag.current && !drag.current.moved) onTap();
     drag.current = null;
   };
   return (
-    <div className="call-self" style={pos ? { left: pos.x, top: pos.y, right: "auto", bottom: "auto" } : undefined} onPointerDown={down} onPointerMove={move} onPointerUp={up}>
+    <div className={`call-self slot-${slot}`} style={pos ? { left: pos.x, top: pos.y, right: "auto", bottom: "auto" } : undefined} onPointerDown={down} onPointerMove={move} onPointerUp={up}>
       {children}
     </div>
   );
