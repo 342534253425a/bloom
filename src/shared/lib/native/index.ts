@@ -229,9 +229,49 @@ export async function startShell() {
   await LocalNotifications.createChannel({ id: "bloom", name: "Bloom", importance: 4, visibility: 1, vibration: true, lights: true, lightColor: "#5ccfa0" }).catch(() => undefined);
   const { StatusBar, Style } = await import("@capacitor/status-bar");
   void StatusBar.setStyle({ style: Style.Light }).catch(() => undefined);
+  // A new APK (when the app itself changed): checked at start, on return to Bloom and every few hours.
+  void checkAndroidUpdate(App);
+  void App.addListener("resume", () => void checkAndroidUpdate(App));
+  window.setInterval(() => void checkAndroidUpdate(App), 6 * 3600_000);
 }
 
 /* ------------------------------------------------------------------ app updates */
+
+/** Shows "Update Bloom" only while GitHub has a build newer than the one installed (each release is numbered like the build). */
+async function checkAndroidUpdate(App: typeof import("@capacitor/app").App) {
+  try {
+    const [{ build }, release] = await Promise.all([
+      App.getInfo(),
+      fetch("https://api.github.com/repos/342534253425a/bloom/releases/latest", { cache: "no-store" }).then((res) => res.json() as Promise<{ tag_name?: string }>),
+    ]);
+    const latest = Number(release.tag_name?.replace("apps-", "") ?? 0);
+    const installed = Number(build);
+    if (!latest || !installed) return;
+    const version = `1.0.${latest}`;
+    if (latest > installed && skipped() !== version) setAppUpdate({ state: "ready", version, percent: 100 });
+    else if (appUpdate.state !== "none") setAppUpdate({ state: "none", version: "", percent: 0 });
+  } catch {
+    /* offline or GitHub unreachable */
+  }
+}
+
+function skipped() {
+  try {
+    return localStorage.getItem("bloom.update.skip");
+  } catch {
+    return null;
+  }
+}
+
+/** "Not now" on the phone: hides the button until the next version comes out. */
+export function skipAppUpdate() {
+  try {
+    localStorage.setItem("bloom.update.skip", appUpdate.version);
+  } catch {
+    /* storage may be unavailable */
+  }
+  setAppUpdate({ state: "none", version: "", percent: 0 });
+}
 
 let appUpdate: AppUpdate = { state: "none", version: "", percent: 0 };
 const updateListeners = new Set<() => void>();

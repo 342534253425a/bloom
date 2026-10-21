@@ -137,7 +137,7 @@ export function AppShell() {
             </div>
           ))}
         </nav>
-        <UpdateButton />
+        <UpdateButton place="side" />
         <InstallButton className="side-install" />
       </aside>
 
@@ -204,6 +204,7 @@ export function AppShell() {
       <RecoverySheet />
       <NotifyAsk />
       <CallHost />
+      <UpdateButton place="float" />
       {prefs && !prefs.onboarded ? <Onboarding onDone={() => void savePrefs(user.id, { onboarded: true })} /> : null}
     </div>
   );
