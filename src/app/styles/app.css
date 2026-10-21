@@ -1136,6 +1136,8 @@
 .dayhero {
   position: relative;
   display: grid;
+  /* Long next-step text must shorten with … instead of pushing the card wider than the screen. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   padding: 20px;
   border-radius: var(--r-2xl);
