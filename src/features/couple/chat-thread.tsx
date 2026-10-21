@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { inFront } from "@/shared/lib/native";
 import {
   deleteMessage,
   editMessage,
@@ -149,8 +150,18 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
     return () => observer.disconnect();
   }, []);
 
+  // Read only when the person is really looking: on Windows a Bloom window behind others doesn't count.
+  // Coming back to the window reads what arrived meanwhile.
   useEffect(() => {
-    if (lastPartner && atBottom && document.visibilityState === "visible") void markRead(lastPartner.created_at);
+    if (!lastPartner || !atBottom) return;
+    const read = () => inFront() && void markRead(lastPartner.created_at);
+    read();
+    window.addEventListener("focus", read);
+    document.addEventListener("visibilitychange", read);
+    return () => {
+      window.removeEventListener("focus", read);
+      document.removeEventListener("visibilitychange", read);
+    };
   }, [lastPartner, atBottom]);
 
   function onScroll() {
