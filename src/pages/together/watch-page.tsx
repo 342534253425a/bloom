@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { saveTurn, setActivity, signal, useCouple, useItem, useSignal, type TurnData } from "@/entities/couple";
+import { setActivity, signal, useCouple, useItem, useSignal, type TurnData } from "@/entities/couple";
 import { ChatThread } from "@/features/couple/chat-thread";
 import { haptic } from "@/shared/lib/motion/fx";
 import {
@@ -10,13 +10,13 @@ import {
   canShareScreen,
   canStreamFile,
   captureScreen,
+  builtInRelay,
   captureVideoElement,
   iceServers,
   type LinkStats,
   type Quality,
   type RtcSignal,
 } from "@/shared/lib/webrtc/share";
-import { Field, TextIn } from "@/shared/ui/bloom";
 import { runNetworkCheck, type CheckResult } from "@/shared/lib/webrtc/check";
 import { Glyph } from "@/shared/ui/glyph";
 import { Art, toast } from "@/shared/ui/kit";
@@ -582,8 +582,7 @@ export function WatchPage() {
               </button>
               <p className="cine-note">💡 {t("couple.watch.audioTip")}</p>
               <p className="cine-note">🔒 {t("couple.watch.drm")}</p>
-              <NetworkCheck turnUrls={(turn?.data.urls ?? "").split(/[\s,]+/).filter(Boolean)} />
-              <RelaySettings value={turn?.data ?? null} />
+              <NetworkCheck turnUrls={[builtInRelay.urls].flat()} />
             </div>
           ) : null}
           <input ref={fileRef} type="file" accept="video/*,.mkv,.mp4,.webm,.mov" hidden onChange={(event) => pickFile(event.target.files?.[0])} />
@@ -597,49 +596,6 @@ export function WatchPage() {
         ) : null}
       </div>
     </div>
-  );
-}
-
-function RelaySettings({ value }: { value: TurnData | null }) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const [urls, setUrls] = useState(value?.urls ?? "");
-  const [username, setUsername] = useState(value?.username ?? "");
-  const [credential, setCredential] = useState(value?.credential ?? "");
-  useEffect(() => {
-    setUrls(value?.urls ?? "");
-    setUsername(value?.username ?? "");
-    setCredential(value?.credential ?? "");
-  }, [value]);
-  return (
-    <details className="relay" open={open} onToggle={(event) => setOpen((event.target as HTMLDetailsElement).open)}>
-      <summary>
-        🛰 {t("couple.watch.relayTitle")}
-        {value?.urls ? " ✓" : ""}
-      </summary>
-      <p className="cine-note">{t("couple.watch.relayBody")}</p>
-      <Field label={t("couple.watch.turnUrls")}>
-        <TextIn value={urls} onChange={setUrls} placeholder="turn:relay1.expressturn.com:3478, turns:relay1.expressturn.com:443?transport=tcp" maxLength={600} />
-      </Field>
-      <div className="field-pair">
-        <Field label={t("couple.watch.turnUser")}>
-          <TextIn value={username} onChange={setUsername} maxLength={200} />
-        </Field>
-        <Field label={t("couple.watch.turnPass")}>
-          <TextIn value={credential} onChange={setCredential} maxLength={200} />
-        </Field>
-      </div>
-      <button
-        type="button"
-        className="btn is-sm"
-        onClick={async () => {
-          await saveTurn({ urls, username, credential });
-          toast(t("couple.watch.saved"), "c-hug-heart");
-        }}
-      >
-        {t("common.save")}
-      </button>
-    </details>
   );
 }
 
