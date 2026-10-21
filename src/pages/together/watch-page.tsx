@@ -582,7 +582,7 @@ export function WatchPage() {
               </button>
               <p className="cine-note">💡 {t("couple.watch.audioTip")}</p>
               <p className="cine-note">🔒 {t("couple.watch.drm")}</p>
-              <NetworkCheck turnUrls={[builtInRelay.urls].flat()} />
+              <NetworkCheck turnUrls={builtInRelay ? [builtInRelay.urls].flat() : []} />
             </div>
           ) : null}
           <input ref={fileRef} type="file" accept="video/*,.mkv,.mp4,.webm,.mov" hidden onChange={(event) => pickFile(event.target.files?.[0])} />

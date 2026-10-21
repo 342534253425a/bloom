@@ -26,15 +26,22 @@ const stun: RTCIceServer[] = [
   { urls: ["stun:stun.l.google.com:19302"] },
 ];
 
-/** Built-in relay (ExpressTURN, free plan): calls and the cinema connect even when Russia ↔ China blocks the direct route. */
-export const builtInRelay: RTCIceServer = {
-  urls: ["turn:free.expressturn.com:3478", "turn:free.expressturn.com:3478?transport=tcp"],
-  username: "000000002107929715",
-  credential: "eI2hZZSkWMVoqHSxDr3YSOUr8vc=",
-};
+/**
+ * Built-in relay (ExpressTURN, free plan): calls and the cinema connect even when Russia ↔ China blocks the direct route.
+ * Comes from .env (VITE_TURN_*) at build time, so it stays out of the repository.
+ */
+export const builtInRelay: RTCIceServer | null = import.meta.env.VITE_TURN_URLS
+  ? {
+      urls: String(import.meta.env.VITE_TURN_URLS)
+        .split(/[\s,]+/)
+        .filter(Boolean),
+      username: import.meta.env.VITE_TURN_USERNAME,
+      credential: import.meta.env.VITE_TURN_CREDENTIAL,
+    }
+  : null;
 
 export function iceServers(turn?: { urls: string; username: string; credential: string } | null): RTCIceServer[] {
-  const list = [...stun, builtInRelay];
+  const list = [...stun, ...(builtInRelay ? [builtInRelay] : [])];
   if (turn?.urls.trim()) {
     list.push({
       urls: turn.urls
