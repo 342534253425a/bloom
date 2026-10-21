@@ -619,7 +619,7 @@ function RelaySettings({ value }: { value: TurnData | null }) {
       </summary>
       <p className="cine-note">{t("couple.watch.relayBody")}</p>
       <Field label={t("couple.watch.turnUrls")}>
-        <TextIn value={urls} onChange={setUrls} placeholder="turn:global.relay.metered.ca:80, turns:global.relay.metered.ca:443?transport=tcp" maxLength={600} />
+        <TextIn value={urls} onChange={setUrls} placeholder="turn:relay1.expressturn.com:3478, turns:relay1.expressturn.com:443?transport=tcp" maxLength={600} />
       </Field>
       <div className="field-pair">
         <Field label={t("couple.watch.turnUser")}>

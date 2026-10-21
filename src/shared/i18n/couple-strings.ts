@@ -301,9 +301,9 @@ export const coupleStrings = {
     relay: ["via relay", "через relay", "经中继"],
     relayTitle: ["Connection help (relay server)", "Помощь со связью (relay-сервер)", "连接帮助（中继服务器）"],
     relayBody: [
-      "If video doesn't connect between countries, add a TURN relay (e.g. a free Metered.ca account). Saved for both of you.",
-      "Если видео не соединяется между странами, добавь TURN relay (например, бесплатный аккаунт Metered.ca). Сохраняется для вас обоих.",
-      "如果跨国视频连不上，请添加 TURN 中继（例如免费的 Metered.ca 账户）。设置会为你们两人保存。",
+      "If video doesn't connect between countries, add a TURN relay (e.g. a free ExpressTURN account). Saved for both of you.",
+      "Если видео не соединяется между странами, добавь TURN relay (например, бесплатный аккаунт ExpressTURN). Сохраняется для вас обоих.",
+      "如果跨国视频连不上，请添加 TURN 中继（例如免费的 ExpressTURN 账户）。设置会为你们两人保存。",
     ],
     turnUrls: ["TURN URLs (comma separated)", "TURN-адреса (через запятую)", "TURN 地址（逗号分隔）"],
     turnUser: ["Username", "Логин", "用户名"],
