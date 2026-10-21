@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { inFront, openOutside } from "@/shared/lib/native";
 import { myId, type CoupleItem, type MessageData } from "@/entities/couple";
@@ -272,14 +273,7 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
   function openMenu(id: string, x: number, y: number) {
     if (selected) return;
     haptic(10);
-    const node = list.current;
-    const box = node?.getBoundingClientRect();
-    const scroll = node?.scrollTop ?? 0;
-    const inside = y - (box?.top ?? 0);
-    // Near the bottom the menu opens upwards, so it never hides under the edge.
-    const height = 420;
-    const top = node && inside + height > node.clientHeight ? Math.max(8, inside - height) : inside;
-    setMenu({ id, x: x - (box?.left ?? 0), y: top + scroll, more: false });
+    setMenu({ id, x, y, more: false });
   }
 
   function toggleSelect(id: string) {
@@ -478,8 +472,14 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
           </div>
         ) : null}
 
-        {menu && menuMessage ? (
-          <div className="chat-menu" style={{ top: menu.y, left: Math.max(8, Math.min(menu.x - 120, (list.current?.clientWidth ?? 300) - 270)) }} onClick={(event) => event.stopPropagation()}>
+      </div>
+
+      {menu && menuMessage
+        ? createPortal(
+            <>
+          {/* Clicking anywhere else closes the menu, like Telegram. */}
+          <div className="chat-menu-backdrop" onClick={() => setMenu(null)} onContextMenu={(event) => { event.preventDefault(); setMenu(null); }} />
+          <div className="chat-menu" style={menuSpot(menu)} onClick={(event) => event.stopPropagation()}>
             <div className={`chat-menu-reacts ${menu.more ? "is-more" : ""}`}>
               {(menu.more ? [...quickReactions, ...moreReactions] : quickReactions).map((emoji) => (
                 <button
@@ -501,40 +501,45 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
                 </button>
               )}
             </div>
-            <button type="button" onClick={() => { setReplyTo(menuMessage.id); setEditing(null); setMenu(null); input.current?.focus(); }}>
-              <Glyph name="reply" size={18} /> {t("couple.chat.reply")}
-            </button>
-            {menuMessage.author === me && menuMessage.data.text ? (
-              <button type="button" onClick={() => { startEdit(menuMessage); setMenu(null); }}>
-                <Glyph name="edit" size={18} /> {t("couple.chat.edit")}
+            <div className="chat-menu-card">
+              <button type="button" onClick={() => { setReplyTo(menuMessage.id); setEditing(null); setMenu(null); input.current?.focus(); }}>
+                <Glyph name="reply" size={20} /> {t("couple.chat.reply")}
               </button>
-            ) : null}
-            <button type="button" onClick={() => { void pin(conv, menuMessage.id); setMenu(null); }}>
-              <Glyph name="pin" size={18} /> {menuMessage.data.pinned ? t("couple.chat.unpin") : t("couple.chat.pin")}
-            </button>
-            {menuMessage.data.text ? (
-              <button type="button" onClick={() => { void copyText([menuMessage.id]); setMenu(null); }}>
-                <Glyph name="copy" size={18} /> {t("people.chat.copyText")}
+              {menuMessage.author === me && menuMessage.data.text ? (
+                <button type="button" onClick={() => { startEdit(menuMessage); setMenu(null); }}>
+                  <Glyph name="edit" size={20} /> {t("couple.chat.edit")}
+                </button>
+              ) : null}
+              <button type="button" onClick={() => { void pin(conv, menuMessage.id); setMenu(null); }}>
+                <Glyph name="pin" size={20} /> {menuMessage.data.pinned ? t("couple.chat.unpin") : t("couple.chat.pin")}
               </button>
-            ) : null}
-            {menuMessage.data.call ? null : (
-              <button type="button" onClick={() => { setForwarding([menuMessage.id]); setMenu(null); }}>
-                <Glyph name="share" size={18} /> {t("people.chat.forward")}
+              {menuMessage.data.text ? (
+                <button type="button" onClick={() => { void copyText([menuMessage.id]); setMenu(null); }}>
+                  <Glyph name="copy" size={20} /> {t("people.chat.copyText")}
+                </button>
+              ) : null}
+              {menuMessage.data.call ? null : (
+                <button type="button" onClick={() => { setForwarding([menuMessage.id]); setMenu(null); }}>
+                  <Glyph name="share" size={20} /> {t("people.chat.forward")}
+                </button>
+              )}
+              <button type="button" className="is-danger" onClick={() => { setMenu(null); void removeMany([menuMessage.id]); }}>
+                <Glyph name="trash" size={20} /> {t("people.chat.delete")}
               </button>
-            )}
-            <button type="button" className="is-danger" onClick={() => { setMenu(null); void removeMany([menuMessage.id]); }}>
-              <Glyph name="trash" size={18} /> {t("couple.chat.delete")}
-            </button>
-            <button type="button" onClick={() => { setSelected(new Set([menuMessage.id])); setMenu(null); }}>
-              <Glyph name="check" size={18} /> {t("people.chat.select")}
-            </button>
-            <p className="chat-menu-when">
-              <Glyph name="clock" size={16} /> {whenLabel(t, menuMessage.created_at)}
-              {menuMessage.data.edited ? ` · ${t("couple.chat.edited")}` : ""}
-            </p>
+              <button type="button" onClick={() => { setSelected(new Set([menuMessage.id])); setMenu(null); }}>
+                <Glyph name="check" size={20} /> {t("people.chat.select")}
+              </button>
+              <i className="chat-menu-sep" />
+              <p className="chat-menu-when">
+                <Glyph name="clock" size={18} /> {whenLabel(t, menuMessage.created_at)}
+                {menuMessage.data.edited ? ` · ${t("couple.chat.edited")}` : ""}
+              </p>
+            </div>
           </div>
-        ) : null}
-      </div>
+            </>,
+            document.body,
+          )
+        : null}
 
       {!atBottom ? (
         <button type="button" className="chat-down" onClick={() => list.current?.scrollTo({ top: list.current.scrollHeight, behavior: "smooth" })}>
@@ -672,6 +677,15 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
       ) : null}
     </div>
   );
+}
+
+/** Telegram puts the menu at the cursor with the reactions just above it, and keeps all of it on screen. */
+function menuSpot(menu: { x: number; y: number; more: boolean }) {
+  const width = 280;
+  const height = menu.more ? 560 : 470;
+  const left = Math.max(8, Math.min(menu.x, window.innerWidth - width - 8));
+  const top = Math.max(8, Math.min(menu.y - 60, window.innerHeight - height - 8));
+  return { left, top };
 }
 
 /** Links in a message stay clickable and open outside Bloom. */

@@ -1760,7 +1760,8 @@
 .hcheck.is-sky { --c: var(--sky); }
 .hcheck.is-sun { --c: var(--sun); }
 .hcheck.is-peach { --c: var(--peach); }
-.hcheck svg {
+/* Only the progress ring fills the button; the + and ✓ icons stay centred on top of it. */
+.hcheck-rings {
   position: absolute;
   inset: 0;
 }

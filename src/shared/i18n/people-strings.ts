@@ -49,6 +49,7 @@ export const peopleStrings = {
     select: ["Select", "Выбрать", "选择"],
     selected: ["Selected: {{count}}", "Выбрано: {{count}}", "已选择：{{count}}"],
     copyText: ["Copy text", "Копировать текст", "复制文本"],
+    delete: ["Delete", "Удалить", "删除"],
     deleteMany: ["Delete {{count}} messages for both?", "Удалить {{count}} сообщ. у обоих?", "要为双方删除 {{count}} 条消息吗？"],
     todayAt: ["today at {{time}}", "сегодня в {{time}}", "今天 {{time}}"],
     yesterdayAt: ["yesterday at {{time}}", "вчера в {{time}}", "昨天 {{time}}"],

@@ -40,7 +40,7 @@ export function HabitCheck({ card, userId, size = 46 }: { card: HabitCard; userI
         } else haptic(4);
       }}
     >
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
+      <svg className="hcheck-rings" width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
         <circle cx={size / 2} cy={size / 2} r={radius} className="hcheck-track" strokeWidth={stroke} />
         <circle
           cx={size / 2}
