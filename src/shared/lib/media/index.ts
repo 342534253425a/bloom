@@ -1,5 +1,6 @@
 import { supabase } from "@/shared/api/supabase";
 import { createId } from "@/shared/lib/id";
+import { decryptFile, encryptFile, type FileSecret } from "@/shared/lib/crypto/e2e";
 
 /** Voice recording, photo compression and the couple's private file storage. */
 
@@ -99,9 +100,34 @@ export async function removeCoupleFile(path: string) {
 }
 
 const urls = new Map<string, { url: string; until: number }>();
+const opened = new Map<string, Promise<string | null>>();
 
-/** Short-lived private link to a stored file (cached for the session). */
-export async function fileUrl(path: string): Promise<string | null> {
+/** Encrypts a file with its own key before it is stored; the key travels inside the encrypted message. */
+export async function uploadSecretFile(key: string, folder: string, blob: Blob): Promise<{ path: string; secret: FileSecret }> {
+  const sealed = await encryptFile(blob);
+  return { path: await uploadCoupleFile(key, folder, sealed.blob), secret: sealed.secret };
+}
+
+/**
+ * A link the page can show: a short-lived private link, or — for an end-to-end encrypted file — the file
+ * downloaded, decrypted on this device and kept in memory for the session.
+ */
+export async function fileUrl(path: string, secret?: FileSecret | null): Promise<string | null> {
+  if (secret) {
+    let url = opened.get(path);
+    if (!url) {
+      url = (async () => {
+        const link = await fileUrl(path);
+        if (!link) return null;
+        const res = await fetch(link);
+        if (!res.ok) return null;
+        return URL.createObjectURL(await decryptFile(await res.arrayBuffer(), secret));
+      })().catch(() => null);
+      opened.set(path, url);
+      void url.then((value) => value === null && opened.delete(path));
+    }
+    return url;
+  }
   const cached = urls.get(path);
   if (cached && cached.until > Date.now()) return cached.url;
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60 * 6);

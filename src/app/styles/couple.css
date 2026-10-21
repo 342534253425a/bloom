@@ -2277,3 +2277,29 @@
     background: #fff;
   }
 }
+
+/* ---------- End-to-end encryption ---------- */
+.chat-locked {
+  display: block;
+  font-size: 13.5px;
+  font-style: italic;
+  font-weight: 700;
+  opacity: 0.8;
+  text-align: left;
+}
+button.chat-locked {
+  color: inherit;
+  text-decoration: underline;
+}
+.pin-form {
+  display: grid;
+  gap: 10px;
+}
+.pin-form input {
+  letter-spacing: 3px;
+  font-size: 18px;
+}
+.pin-forgot {
+  justify-self: center;
+  font-size: 13px;
+}

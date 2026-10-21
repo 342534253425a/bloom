@@ -1,6 +1,7 @@
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { supabase } from "@/shared/api/supabase";
+import { onE2EChange, revealInto } from "@/entities/e2e";
 
 /** Everything Bloom knows about the couple, kept in one live store. */
 
@@ -98,6 +99,12 @@ export function getItem<T = Record<string, unknown>>(id: string): CoupleItem<T> 
   return (items.get(id) as CoupleItem<T> | undefined) ?? null;
 }
 
+// The key arrived on this device (PIN entered): open the messages that were waiting.
+onE2EChange(() => {
+  for (const item of items.values()) if (item.data?.enc && (item.data.locked || item.data.unreadable)) items.set(item.id, revealInto(items, { ...item, data: { ...item.data, locked: undefined, unreadable: undefined } }, bump));
+  bump();
+});
+
 /* ---------- Broadcast bus: effects, typing, watch signalling ---------- */
 
 export function onSignal(event: string, handler: (payload: Record<string, unknown>) => void) {
@@ -144,7 +151,7 @@ export async function putItem(id: string, kind: string, data: Record<string, unk
     created_at: existing?.created_at ?? now,
     updated_at: now,
   };
-  items.set(id, optimistic);
+  items.set(id, revealInto(items, optimistic, bump));
   bump();
   const { error } = existing
     ? await supabase.from("couple_items").update({ data, kind }).eq("couple_key", key).eq("id", id)
@@ -215,7 +222,7 @@ async function loadItems(key: string) {
     return;
   }
   items.clear();
-  for (const row of (data ?? []) as CoupleItem[]) items.set(row.id, row);
+  for (const row of (data ?? []) as CoupleItem[]) items.set(row.id, revealInto(items, row, bump));
 }
 
 function joinChannel(key: string, uid: string) {
@@ -231,7 +238,7 @@ function joinChannel(key: string, uid: string) {
         if (old.id) items.delete(old.id);
       } else {
         const row = change.new as CoupleItem;
-        items.set(row.id, row);
+        items.set(row.id, revealInto(items, row, bump));
         if (change.eventType === "INSERT") emitLocal(`item:${row.kind}`, row as unknown as Record<string, unknown>);
       }
       bump();

@@ -3,6 +3,7 @@ import { syncLanguage } from "@/features/authenticate";
 import { useTranslation } from "react-i18next";
 import { useEffect, useRef } from "react";
 import { connectContacts } from "@/entities/chat";
+import { startE2E } from "@/entities/e2e";
 import { connectCouple, markAway, publishDay, setActivity, useCouple, useItems, type Activity } from "@/entities/couple";
 import { db } from "@/shared/db";
 import { useDay } from "@/entities/day";
@@ -78,6 +79,11 @@ export function CoupleBridge() {
   // Friends and family: their chats and calls stay live too.
   useEffect(() => {
     void connectContacts(user.id);
+  }, [user.id]);
+
+  // End-to-end encryption: this person's key on this device (or the PIN window).
+  useEffect(() => {
+    void startE2E(user.id);
   }, [user.id]);
 
   // Emails (codes, resets) are written in the app language saved on the account.

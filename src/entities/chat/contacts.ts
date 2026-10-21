@@ -2,6 +2,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { useRef, useSyncExternalStore } from "react";
 import type { CoupleItem } from "@/entities/couple";
 import { supabase } from "@/shared/api/supabase";
+import { onE2EChange, revealInto } from "@/entities/e2e";
 
 /**
  * People besides the partner: friends and family, each with a private chat (like Telegram).
@@ -90,7 +91,7 @@ export async function putChatItem(chatKey: string, id: string, kind: string, dat
   if (!me) throw new Error("signed-out");
   const existing = chat(chatKey).get(id);
   const now = new Date().toISOString();
-  chat(chatKey).set(id, { couple_key: chatKey, id, kind, author: existing?.author ?? me, data, created_at: existing?.created_at ?? now, updated_at: now });
+  chat(chatKey).set(id, revealInto(chat(chatKey), { couple_key: chatKey, id, kind, author: existing?.author ?? me, data, created_at: existing?.created_at ?? now, updated_at: now }, bump));
   bump();
   const { data: saved, error } = await supabase
     .from("chat_items")
@@ -98,7 +99,7 @@ export async function putChatItem(chatKey: string, id: string, kind: string, dat
     .select()
     .single();
   if (error) throw error;
-  if (saved) chat(chatKey).set(id, toItem(saved as Row));
+  if (saved) chat(chatKey).set(id, revealInto(chat(chatKey), toItem(saved as Row), bump));
   bump();
 }
 
@@ -113,6 +114,14 @@ type Row = { chat_key: string; id: string; kind: string; author: string; data: R
 function toItem(row: Row): CoupleItem {
   return { couple_key: row.chat_key, id: row.id, kind: row.kind, author: row.author, data: row.data, created_at: row.created_at, updated_at: row.updated_at };
 }
+
+// The key arrived on this device (PIN entered): open the messages that were waiting.
+onE2EChange(() => {
+  for (const map of chats.values())
+    for (const item of map.values())
+      if (item.data?.enc && (item.data.locked || item.data.unreadable)) map.set(item.id, revealInto(map, { ...item, data: { ...item.data, locked: undefined, unreadable: undefined } }, bump));
+  bump();
+});
 
 /* ---------- Signals (typing, calls) in one chat ---------- */
 
@@ -152,7 +161,7 @@ async function load() {
   if (keys.length) {
     const { data: items } = await supabase.from("chat_items").select("*").in("chat_key", keys).order("created_at", { ascending: false }).limit(4000);
     for (const key of keys) chat(key).clear();
-    for (const row of (items ?? []) as Row[]) chat(row.chat_key).set(row.id, toItem(row));
+    for (const row of (items ?? []) as Row[]) chat(row.chat_key).set(row.id, revealInto(chat(row.chat_key), toItem(row), bump));
   }
   set({
     status: "ready",
@@ -205,7 +214,7 @@ export async function connectContacts(uid: string) {
         if (old.id) for (const map of chats.values()) map.delete(old.id);
       } else {
         const row = change.new as Row;
-        chat(row.chat_key).set(row.id, toItem(row));
+        chat(row.chat_key).set(row.id, revealInto(chat(row.chat_key), toItem(row), bump));
         if (change.eventType === "INSERT") emit(`item:${row.kind}`, row.chat_key, row as unknown as Record<string, unknown>);
       }
       bump();

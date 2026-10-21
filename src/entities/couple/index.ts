@@ -1,6 +1,7 @@
 import { db } from "@/shared/db";
 import { dateKey, addDays } from "@/shared/lib/date";
 import { createId } from "@/shared/lib/id";
+import type { Envelope, FileSecret } from "@/shared/lib/crypto/e2e";
 import { getCouple, getItem, myId, putItem, removeItem, signal, useCouple, useItem, useItems, type CoupleItem } from "./link";
 
 export * from "./link";
@@ -25,8 +26,9 @@ export async function markEffectSeen(id: string) {
 
 /* ---------- Chat ---------- */
 
-export type VoiceAttachment = { path: string; duration: number; mime: string };
-export type PhotoAttachment = { path: string; width: number; height: number };
+/** `secret`: the file's own key when it is end-to-end encrypted (inside the encrypted message). */
+export type VoiceAttachment = { path: string; duration: number; mime: string; secret?: FileSecret };
+export type PhotoAttachment = { path: string; width: number; height: number; secret?: FileSecret };
 
 export type MessageData = {
   text: string | null;
@@ -44,59 +46,22 @@ export type MessageData = {
   topic?: string | null;
   /** Forwarded from another chat; name of the original author, or null when it was your own. */
   forwarded?: { name: string | null } | null;
+  /** End-to-end encrypted: the envelope as stored; the fields above are filled in on this device after decrypting. */
+  enc?: Envelope;
+  /** Encrypted, but the key isn't on this device yet (PIN not entered). */
+  locked?: boolean;
+  /** Encrypted with a key this device no longer has. */
+  unreadable?: boolean;
 };
 
-export type VideoAttachment = { path: string; width: number; height: number; duration: number; mime: string };
+export type VideoAttachment = { path: string; width: number; height: number; duration: number; mime: string; secret?: FileSecret };
 
 /** Messages ordered the way the server received them (phone clocks in two countries can disagree). */
 export function messageOrder(a: CoupleItem<MessageData>, b: CoupleItem<MessageData>) {
   return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
 }
 
-export async function sendMessage(
-  text: string | null,
-  extra: Partial<Pick<MessageData, "sticker" | "replyTo" | "voice" | "photo" | "call">> = {},
-) {
-  const body = text?.trim() || null;
-  if (!body && !extra.sticker && !extra.voice && !extra.photo && !extra.call) return;
-  const id = `msg:${createId()}`;
-  await putItem(id, "msg", {
-    text: body,
-    sticker: extra.sticker ?? null,
-    reactions: {},
-    replyTo: extra.replyTo ?? null,
-    voice: extra.voice ?? null,
-    photo: extra.photo ?? null,
-    ...(extra.call ? { call: extra.call } : {}),
-  } satisfies MessageData);
-  void signal("typing", { typing: false });
-}
-
-export async function editMessage(id: string, text: string) {
-  const item = getItem<MessageData>(id);
-  if (!item || !text.trim() || item.author !== myId()) return;
-  await putItem(id, "msg", { ...item.data, text: text.trim(), edited: new Date().toISOString() });
-}
-
-export async function togglePin(id: string) {
-  const item = getItem<MessageData>(id);
-  if (!item) return;
-  await putItem(id, "msg", { ...item.data, pinned: item.data.pinned ? null : new Date().toISOString() });
-}
-
-export async function toggleReaction(id: string, emoji: string) {
-  const me = myId();
-  const item = getItem<MessageData>(id);
-  if (!me || !item) return;
-  const reactions = { ...(item.data.reactions ?? {}) };
-  if (reactions[me] === emoji) delete reactions[me];
-  else reactions[me] = emoji;
-  await putItem(id, "msg", { ...item.data, reactions });
-}
-
-export async function deleteMessage(id: string) {
-  await removeItem(id);
-}
+// Sending, editing, pinning and reacting go through a conversation (src/entities/chat), which encrypts messages.
 
 /** Remembers the server time of the newest message this person has seen. */
 export async function markRead(seenAt: string) {

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { setActivity, useCouple } from "@/entities/couple";
 import { PARTNER, removeContact, setContactKind, useContacts, useConversation } from "@/entities/chat";
+import { encryptedWith, useE2E } from "@/entities/e2e";
 import { ChatThread } from "@/features/couple/chat-thread";
 import { CallButtons } from "@/features/call/call-host";
 import { LoveGrid } from "@/features/couple/love";
@@ -30,6 +31,18 @@ function ChatScreen({ id }: { id: string }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const partner = id === PARTNER;
+  const e2e = useE2E();
+  const [secure, setSecure] = useState(false);
+  const peerId = conv?.peer.id;
+  // Both have keys: messages here are end-to-end encrypted.
+  useEffect(() => {
+    if (!peerId) return;
+    let alive = true;
+    void encryptedWith(peerId).then((value) => alive && setSecure(value));
+    return () => {
+      alive = false;
+    };
+  }, [peerId, e2e.status]);
   const contact = partner ? undefined : contacts.list.find((item) => item.id === id);
 
   useEffect(() => {
@@ -73,7 +86,10 @@ function ChatScreen({ id }: { id: string }) {
         </span>
         <span className="chat-head-copy">
           <strong>{conv.peer.name}</strong>
-          <small>{status}</small>
+          <small title={secure ? t("people.e2e.badge") : undefined}>
+            {secure ? "🔒 " : ""}
+            {status}
+          </small>
         </span>
         <CallButtons conv={conv} />
         <button type="button" className="round-btn" aria-label={t("couple.chat.search")} onClick={() => setSearchOpen(!searchOpen)}>

@@ -17,6 +17,7 @@ import { NotifyAsk } from "@/features/notify/notify-ask";
 import { NotifyHost } from "@/features/notify/notify-host";
 import { CallHost } from "@/features/call/call-host";
 import { UpdateButton } from "./update-button";
+import { PinSheet } from "@/features/e2e/pin-sheet";
 import { RecoverySheet } from "./recovery-sheet";
 import { CoupleBridge } from "./couple-bridge";
 import { useUnread } from "@/entities/couple";
@@ -213,6 +214,7 @@ export function AppShell() {
       <RecoverySheet />
       <NotifyAsk />
       <CallHost />
+      <PinSheet />
       <UpdateButton place="float" />
       {prefs && !prefs.onboarded ? <Onboarding onDone={() => void savePrefs(user.id, { onboarded: true })} /> : null}
     </div>

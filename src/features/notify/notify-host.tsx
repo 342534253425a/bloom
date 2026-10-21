@@ -1,7 +1,7 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { getItems, markRead, messageOrder, sendMessage, useCouple, useItems, useUnread, type CoupleItem, type MessageData } from "@/entities/couple";
+import { getItems, markRead, messageOrder, useCouple, useItems, useUnread, type CoupleItem, type MessageData } from "@/entities/couple";
 import type { CardData, RatingData, RecordingData } from "@/entities/couple/phrasebook";
 import { readBoard } from "@/entities/habit";
 import { alreadySent, kindOn, kindTime, markSent, notify, pushSnapshot, setPushActive } from "@/entities/notify";
@@ -16,7 +16,8 @@ import { db } from "@/shared/db";
 import { addDays, dateKey, daysBetween, weekdayOf } from "@/shared/lib/date";
 import { askAndroidNotifications, dismissAppNotification, onNoteAction, onOpenRequest, setUnread, shell } from "@/shared/lib/native";
 import { planAndroidReminders, plannedNatively } from "./android-plan";
-import { contactByKey, onChatSignal } from "@/entities/chat";
+import { contactByKey, onChatSignal, partnerConversation, send as sendInChat } from "@/entities/chat";
+import { reveal } from "@/entities/e2e";
 import { preview as chatPreview } from "@/features/couple/chat-thread";
 
 /** How long after its time a scheduled reminder may still fire (the app may open late). */
@@ -182,6 +183,7 @@ function hanziOf(cardId: string): string {
 
 /** How a chat message reads in a notification. */
 export function messagePreview(data: Partial<MessageData>, t: T): string {
+  if (data.locked || data.unreadable || (data.enc && data.text === undefined && !data.photo && !data.video && !data.voice && !data.sticker)) return t("people.e2e.preview");
   if (data.call) return data.call.status === "ended" ? `📞 ${t(data.call.video ? "call.log.incomingVideo" : "call.log.incoming")}` : `📞 ${t("call.log.missed")}`;
   if (data.sticker) return t("notify.preview.sticker");
   if (data.voice) return t("notify.preview.voice");
@@ -228,9 +230,13 @@ function usePartnerEvents(userId: string, prefs: Prefs | undefined, t: T, path: 
         case "msg":
           // A finished call needs no notification; a missed one does.
           if (isNew(item) && item.author === partnerId && (d.call as MessageData["call"])?.status !== "ended") {
-            const chat = unreadChat(userId, partnerId, t);
-            const text = chat.lines.at(-1) ?? "";
-            say("message", text, { chat });
+            // Encrypted messages are opened on this device first, so the notification shows the real text.
+            void reveal(item).then((open) => {
+              const chat = unreadChat(userId, partnerId, t);
+              const text = messagePreview(open.data as Partial<MessageData>, t);
+              chat.lines = [...chat.lines.slice(0, -1), text];
+              say("message", text, { chat });
+            });
           }
           break;
         case "effect":
@@ -330,7 +336,7 @@ export function NotifyHost() {
         const contact = contactByKey(chatKey);
         const current = prefsRef.current;
         if (!contact || !current || message.author === user.id || message.data?.call?.status === "ended") return;
-        notify({ userId: user.id, prefs: current, kind: "message", title: contact.name, body: chatPreview(t, message), to: `/people/${contact.id}`, tag: `chat-${chatKey}` });
+        void reveal(message).then((open) => notify({ userId: user.id, prefs: current, kind: "message", title: contact.name, body: chatPreview(t, open), to: `/people/${contact.id}`, tag: `chat-${chatKey}` }));
       }),
     [user.id, t],
   );
@@ -356,7 +362,10 @@ export function NotifyHost() {
   useEffect(
     () =>
       onNoteAction((action, payload) => {
-        if (action === "reply" && typeof payload === "string") void sendMessage(payload);
+        if (action === "reply" && typeof payload === "string") {
+          const partner = partnerConversation();
+          if (partner) void sendInChat(partner, payload).catch(() => undefined);
+        }
         if (action === "reply" || action === "read") {
           const newest = getItems<MessageData>("msg").sort(messageOrder).at(-1);
           if (newest) void markRead(newest.created_at);

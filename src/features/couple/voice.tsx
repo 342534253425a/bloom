@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { FileSecret } from "@/shared/lib/crypto/e2e";
 import { canRecord, fileUrl, formatDuration, startRecording, type Recorder, type Recording } from "@/shared/lib/media";
 import { haptic } from "@/shared/lib/motion/fx";
 import { Glyph } from "@/shared/ui/glyph";
@@ -10,12 +11,15 @@ let playing: HTMLAudioElement | null = null;
 /** A compact voice player: play/pause, progress, and speed (slow speeds for language practice). */
 export function VoicePlayer({
   path,
+  secret,
   duration,
   speeds = [1, 1.5, 2],
   tone = "light",
   label,
 }: {
   path: string;
+  /** The file key of an end-to-end encrypted voice message. */
+  secret?: FileSecret | null;
   duration: number;
   speeds?: number[];
   tone?: "light" | "dark";
@@ -40,7 +44,7 @@ export function VoicePlayer({
     }
     if (!audio.current) {
       setState("loading");
-      const url = await fileUrl(path);
+      const url = await fileUrl(path, secret);
       if (!url) {
         setState("idle");
         return;

@@ -7,7 +7,9 @@ import { allConversations, edit, forward, messageOrder, pin, react, read, remove
 import { localeOf } from "@/shared/i18n";
 import { topicIcon, topics } from "@/shared/config/topics";
 import { embedUrl, findLinks, mainLink, type LinkInfo } from "@/shared/lib/links";
-import { compressImage, fileUrl, MAX_FILE, uploadCoupleFile, videoInfo } from "@/shared/lib/media";
+import { compressImage, fileUrl, MAX_FILE, uploadCoupleFile, uploadSecretFile, videoInfo } from "@/shared/lib/media";
+import type { FileSecret } from "@/shared/lib/crypto/e2e";
+import { askPin, E2ELockedError, encryptedWith, getE2E } from "@/entities/e2e";
 import { haptic, pop } from "@/shared/lib/motion/fx";
 import { Glyph } from "@/shared/ui/glyph";
 import { Art, toast } from "@/shared/ui/kit";
@@ -76,6 +78,8 @@ export function callLabel(t: (key: string) => string, call: NonNullable<MessageD
 
 export function preview(t: (key: string) => string, message: Msg | undefined): string {
   if (!message) return t("couple.chat.deleted");
+  if (message.data.locked || message.data.unreadable || (message.data.enc && message.data.text === undefined && !message.data.photo && !message.data.video && !message.data.voice && !message.data.sticker))
+    return t("people.e2e.preview");
   if (message.data.call) return `📞 ${callLabel(t, message.data.call, message.author === myId())}`;
   if (message.data.voice) return `🎤 ${t("couple.chat.voice")}`;
   if (message.data.photo) return `📷 ${message.data.text || t("couple.chat.photo")}`;
@@ -231,7 +235,16 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
     setReplyTo(null);
     haptic(6);
     setAtBottom(true);
-    await sendTo(conv, body, { ...(topic ? { topic } : {}), replyTo: reply });
+    try {
+      await sendTo(conv, body, { ...(topic ? { topic } : {}), replyTo: reply });
+    } catch (error) {
+      if (!(error instanceof E2ELockedError)) throw error;
+      // Not sent: the text comes back to the box, and the PIN window opens.
+      composer.current?.setText(body);
+      setReplyTo(reply);
+      askPin();
+      toast(t("people.e2e.needPin"), "c-frown");
+    }
   });
 
   /** Stickers, voice, photos and videos (with an optional caption). */
@@ -241,7 +254,13 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
     setReplyTo(null);
     haptic(6);
     setAtBottom(true);
-    await sendTo(conv, caption, { ...extra, replyTo: reply });
+    try {
+      await sendTo(conv, caption, { ...extra, replyTo: reply });
+    } catch (error) {
+      if (!(error instanceof E2ELockedError)) throw error;
+      askPin();
+      toast(t("people.e2e.needPin"), "c-frown");
+    }
   }
 
   /** Photos and videos: from the clip button, Ctrl+V, or dropped on the chat. */
@@ -258,22 +277,23 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
     setPending(null);
     setUploading(true);
     try {
+      const store = await uploader(conv);
       for (const [index, item] of items.entries()) {
         const words = index === 0 ? caption.trim() || null : null;
         if (item.video) {
           const info = await videoInfo(item.file);
-          const path = await uploadCoupleFile(conv.key, "videos", item.file);
-          await send({ video: { path, ...info, mime: item.file.type }, topic }, words);
+          const file = await store("videos", item.file);
+          await send({ video: { ...file, ...info, mime: item.file.type }, topic }, words);
         } else if (item.file.type === "image/gif") {
           // Animated GIFs keep their animation.
           const bitmap = await createImageBitmap(item.file);
-          const path = await uploadCoupleFile(conv.key, "photos", item.file);
-          await send({ photo: { path, width: bitmap.width, height: bitmap.height }, topic }, words);
+          const file = await store("photos", item.file);
+          await send({ photo: { ...file, width: bitmap.width, height: bitmap.height }, topic }, words);
           bitmap.close();
         } else {
           const image = await compressImage(item.file);
-          const path = await uploadCoupleFile(conv.key, "photos", image.blob);
-          await send({ photo: { path, width: image.width, height: image.height }, topic }, words);
+          const file = await store("photos", image.blob);
+          await send({ photo: { ...file, width: image.width, height: image.height }, topic }, words);
         }
       }
       // The typed text went out as the caption.
@@ -310,8 +330,8 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
   const openPhoto = useStable((url: string) => setViewer(url));
   const voice = useStable(async (recording: { blob: Blob; duration: number; mime: string }) => {
     try {
-      const path = await uploadCoupleFile(conv.key, "voice", recording.blob);
-      await send({ voice: { path, duration: recording.duration, mime: recording.mime } });
+      const file = await (await uploader(conv))("voice", recording.blob);
+      await send({ voice: { ...file, duration: recording.duration, mime: recording.mime } });
     } catch {
       toast(t("couple.chat.uploadFailed"), "c-frown");
     }
@@ -680,6 +700,11 @@ const Composer = memo(function Composer({
   }, [text, editing, draftKey]);
 
   const submit = () => {
+    if (getE2E().status === "locked") {
+      askPin();
+      toast(t("people.e2e.needPin"), "c-frown");
+      return;
+    }
     const body = text;
     const topic = hasLink ? linkTopic : null;
     if (!editing) {
@@ -821,11 +846,18 @@ const MessageRow = memo(function MessageRow({
           ) : null}
           {data.call ? <CallRecord call={data.call} mine={mine} conv={conv} /> : null}
           {data.sticker ? <Art name={data.sticker} /> : null}
-          {data.photo ? <Photo path={data.photo.path} ratio={data.photo.width / data.photo.height} onOpen={onOpenPhoto} /> : null}
-          {data.video ? <VideoNote path={data.video.path} ratio={data.video.width / data.video.height} /> : null}
-          {data.voice ? <VoicePlayer path={data.voice.path} duration={data.voice.duration} tone={mine ? "dark" : "light"} /> : null}
+          {data.photo ? <Photo path={data.photo.path} secret={data.photo.secret} ratio={data.photo.width / data.photo.height} onOpen={onOpenPhoto} /> : null}
+          {data.video ? <VideoNote path={data.video.path} secret={data.video.secret} ratio={data.video.width / data.video.height} /> : null}
+          {data.voice ? <VoicePlayer path={data.voice.path} secret={data.voice.secret} duration={data.voice.duration} tone={mine ? "dark" : "light"} /> : null}
           {link ? <LinkCard link={link} /> : null}
           {text ? <span className="chat-text">{text}</span> : null}
+          {data.locked ? (
+            <button type="button" className="chat-locked" onClick={(event) => { event.stopPropagation(); askPin(); }}>
+              {t("people.e2e.lockedMsg")}
+            </button>
+          ) : data.unreadable ? (
+            <span className="chat-locked">{t("people.e2e.unreadable")}</span>
+          ) : null}
           <small className="chat-meta">
             {data.topic ? `${topicIcon(data.topic)} ` : ""}
             {data.pinned ? "📌 " : ""}
@@ -856,6 +888,12 @@ function menuSpot(menu: { x: number; y: number; more: boolean }) {
   const left = Math.max(8, Math.min(menu.x, window.innerWidth - width - 8));
   const top = Math.max(8, Math.min(menu.y - 60, window.innerHeight - height - 8));
   return { left, top };
+}
+
+/** Files go up encrypted (with their own key) when the chat is end-to-end encrypted, as they are otherwise. */
+async function uploader(conv: Conversation): Promise<(folder: string, blob: Blob) => Promise<{ path: string; secret?: FileSecret }>> {
+  const secret = await encryptedWith(conv.peer.id);
+  return (folder, blob) => (secret ? uploadSecretFile(conv.key, folder, blob) : uploadCoupleFile(conv.key, folder, blob).then((path) => ({ path })));
 }
 
 /** Links in a message stay clickable and open outside Bloom. */
@@ -1090,22 +1128,24 @@ function Bubble({
   );
 }
 
-function useFileUrl(path: string) {
+function useFileUrl(path: string, secret?: FileSecret | null) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    void fileUrl(path).then((value) => {
+    void fileUrl(path, secret).then((value) => {
       if (alive) setUrl(value);
     });
     return () => {
       alive = false;
     };
+    // The key never changes for a stored file.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
   return url;
 }
 
-export function Photo({ path, ratio, onOpen }: { path: string; ratio: number; onOpen: (url: string) => void }) {
-  const url = useFileUrl(path);
+export function Photo({ path, secret, ratio, onOpen }: { path: string; secret?: FileSecret | null; ratio: number; onOpen: (url: string) => void }) {
+  const url = useFileUrl(path, secret);
   return (
     <button type="button" className="chat-photo" style={{ aspectRatio: String(ratio || 1) }} onClick={(event) => { event.stopPropagation(); if (url) onOpen(url); }}>
       {url ? <img src={url} alt="" loading="lazy" /> : <span className="spinner" />}
@@ -1113,8 +1153,8 @@ export function Photo({ path, ratio, onOpen }: { path: string; ratio: number; on
   );
 }
 
-export function VideoNote({ path, ratio }: { path: string; ratio: number }) {
-  const url = useFileUrl(path);
+export function VideoNote({ path, secret, ratio }: { path: string; secret?: FileSecret | null; ratio: number }) {
+  const url = useFileUrl(path, secret);
   return (
     <span className="chat-photo chat-video" style={{ aspectRatio: String(ratio || 16 / 9) }} onClick={(event) => event.stopPropagation()}>
       {url ? <video src={url} controls playsInline preload="metadata" /> : <span className="spinner" />}

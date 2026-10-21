@@ -15,6 +15,7 @@ import {
   type MessageData,
 } from "@/entities/couple";
 import { supabase } from "@/shared/api/supabase";
+import { sealMessage } from "@/entities/e2e";
 import { createId } from "@/shared/lib/id";
 import {
   chatSignal,
@@ -64,7 +65,7 @@ export function partnerConversation(): Conversation | null {
     useItem,
     getItems,
     getItem,
-    put: putItem,
+    put: async (id, kind, data) => putItem(id, kind, kind === "msg" ? await sealMessage(couple.partner!.id, data) : data),
     remove: removeItem,
     signal,
     onSignal: (event, handler) => {
@@ -85,7 +86,7 @@ export function contactConversation(contact: Contact): Conversation {
     useItem: <T>(id: string) => useChatItem<T>(key, id),
     getItems: <T>(kind: string) => getChatItems<T>(key, kind),
     getItem: <T>(id: string) => getChatItem<T>(key, id),
-    put: (id, kind, data) => putChatItem(key, id, kind, data),
+    put: async (id, kind, data) => putChatItem(key, id, kind, kind === "msg" ? await sealMessage(contact.id, data) : data),
     remove: (id) => removeChatItem(key, id),
     signal: (event, payload) => chatSignal(key, event, payload),
     onSignal: (event, handler) => {

@@ -110,6 +110,8 @@ const copy: Record<string, L> = {
   callVideo: ["📹 Video call — tap to answer", "📹 Видеозвонок — нажмите, чтобы ответить", "📹 视频来电，点按接听"],
   missedCall: ["📞 Missed call", "📞 Пропущенный звонок", "📞 未接来电"],
   newMessages: ["{count} new messages", "Новых сообщений: {count}", "{count} 条新消息"],
+  // End-to-end encrypted messages: the server can't read them, so the notification only says one arrived.
+  secret: ["🔒 New message", "🔒 Новое сообщение", "🔒 新消息"],
   test: ["Push works! This is how Bloom reaches you when it's closed 🌱", "Пуш работает! Так Bloom будет писать, когда он закрыт 🌱", "推送正常！Bloom 关闭时就这样提醒你 🌱"],
 };
 
@@ -401,7 +403,7 @@ async function itemEvent(op: string, record: Item, old: Item | null, actor: stri
       kind = "message";
       // Like messengers: one card per chat with the unread messages and how many there are.
       const preview = (m: Record<string, unknown>) =>
-        m.call ? say(lang, "missedCall") : m.sticker ? say(lang, "sticker") : m.voice ? say(lang, "voice") : m.photo ? (m.text ? `📷 ${m.text}` : say(lang, "photo")) : String(m.text ?? "").slice(0, 160);
+        m.enc ? say(lang, "secret") : m.call ? say(lang, "missedCall") : m.sticker ? say(lang, "sticker") : m.voice ? say(lang, "voice") : m.photo ? (m.text ? `📷 ${m.text}` : say(lang, "photo")) : String(m.text ?? "").slice(0, 160);
       const { data: read } = await db.from("couple_items").select("data").eq("couple_key", record.couple_key).eq("id", `read:${partner.id}`).maybeSingle();
       const seen = String((read?.data as { seen?: string } | null)?.seen ?? "");
       let query = db.from("couple_items").select("data, created_at").eq("couple_key", record.couple_key).eq("kind", "msg").eq("author", actor).order("created_at", { ascending: false }).limit(50);
@@ -518,7 +520,7 @@ async function chatEvent(op: string, record: ChatRow, actor: string | null) {
   const call = d.call as { status?: string } | undefined;
   if (call?.status === "ended") return;
   const preview = (m: Record<string, unknown>) =>
-    m.call ? say(lang, "missedCall") : m.sticker ? say(lang, "sticker") : m.voice ? say(lang, "voice") : m.photo ? (m.text ? `📷 ${m.text}` : say(lang, "photo")) : m.video ? `🎬 ${m.text ?? ""}` : String(m.text ?? "").slice(0, 160);
+    m.enc ? say(lang, "secret") : m.call ? say(lang, "missedCall") : m.sticker ? say(lang, "sticker") : m.voice ? say(lang, "voice") : m.photo ? (m.text ? `📷 ${m.text}` : say(lang, "photo")) : m.video ? `🎬 ${m.text ?? ""}` : String(m.text ?? "").slice(0, 160);
   const { data: read } = await db.from("chat_items").select("data").eq("chat_key", record.chat_key).eq("id", `read:${to}`).maybeSingle();
   const seen = String((read?.data as { seen?: string } | null)?.seen ?? "");
   let query = db.from("chat_items").select("data, created_at").eq("chat_key", record.chat_key).eq("kind", "msg").eq("author", actor).order("created_at", { ascending: false }).limit(50);

@@ -5,6 +5,7 @@ import { supabase } from "@/shared/api/supabase";
 import { pushEverything, startSync, stopSync } from "@/shared/api/sync";
 import { disconnectCouple } from "@/entities/couple/link";
 import { disconnectContacts } from "@/entities/chat/contacts";
+import { stopE2E } from "@/entities/e2e";
 import { DomainError } from "@/shared/lib/errors";
 import { createId } from "@/shared/lib/id";
 import { db, type Tone } from "@/shared/db";
@@ -264,6 +265,8 @@ export async function logoutAccount(): Promise<void> {
   stopSync();
   disconnectCouple();
   disconnectContacts();
+  // The encryption key leaves this device; the PIN brings it back.
+  await stopE2E().catch(() => undefined);
   // Only this device: signing out on the phone must not sign the computer out too.
   await supabase.auth.signOut({ scope: "local" });
 }
