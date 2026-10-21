@@ -9,6 +9,7 @@ import { Empty, PageHead, Section, Stat, Tabs } from "@/shared/ui/bloom";
 import { Columns, Line } from "@/shared/ui/charts";
 import { Glyph } from "@/shared/ui/glyph";
 import { Art, Bar, Ring, Tile, at, toast } from "@/shared/ui/kit";
+import { shell } from "@/shared/lib/native";
 import { Tour } from "@/widgets/tour/tour";
 
 const insightArt: Record<Insight["kind"], string> = {
@@ -22,6 +23,11 @@ const insightArt: Record<Insight["kind"], string> = {
 
 export async function shareText(text: string, t: (key: string) => string) {
   try {
+    if (shell === "android") {
+      const { Share } = await import("@capacitor/share");
+      await Share.share({ text });
+      return;
+    }
     if (navigator.share) {
       await navigator.share({ text });
       return;

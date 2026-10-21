@@ -8,8 +8,11 @@ import { restoreAccount, setRecovering } from "@/features/authenticate";
 import { supabase } from "@/shared/api/supabase";
 import { stopSync } from "@/shared/api/sync";
 import { listenForInstall } from "@/shared/lib/install";
+import { startShell } from "@/shared/lib/native";
 
 listenForInstall();
+// Windows and Android apps: links back from Google, notification taps, back button.
+void startShell().catch((error) => console.warn("Bloom app shell", error));
 import { db } from "@/shared/db";
 import { i18n, i18nReady } from "@/shared/i18n";
 import "@/app/styles/base.css";

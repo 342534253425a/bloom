@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { isApp } from "@/shared/lib/native";
 
 /** Chrome/Edge/Samsung/Yandex fire this when Bloom can be installed with one tap. */
 type InstallEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
@@ -26,6 +27,7 @@ export function listenForInstall() {
 
 export function isStandalone(): boolean {
   return (
+    isApp ||
     installed ||
     window.matchMedia("(display-mode: standalone)").matches ||
     window.matchMedia("(display-mode: fullscreen)").matches ||

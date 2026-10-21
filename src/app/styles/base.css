@@ -354,3 +354,31 @@ a {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* ---------- Windows app: our own slim title bar instead of the browser's ---------- */
+
+html.is-desktop body::before {
+  content: "bloom";
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 1000;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding-left: 16px;
+  background: #f3f1f8;
+  color: var(--mint-600);
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/* The app lives below the bar; transform keeps fixed layers (sheets, backgrounds) inside it. */
+html.is-desktop #root {
+  position: fixed;
+  inset: 36px 0 0 0;
+  height: auto;
+  transform: translateZ(0);
+}

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>Bloom</title>
+    <style>
+      html, body { margin: 0; height: 100%; font-family: "Segoe UI", system-ui, sans-serif; background: #f3f1f8; color: #3a3550; }
+      body::before { content: "bloom"; position: fixed; inset: 0 0 auto 0; height: 36px; display: flex; align-items: center; padding-left: 16px; color: #1fae84; font-size: 19px; font-weight: 700; -webkit-app-region: drag; }
+      main { height: 100%; display: grid; place-content: center; text-align: center; gap: 10px; padding: 24px; }
+      img { width: 140px; margin: 0 auto; }
+      h1 { margin: 0; font-size: 22px; }
+      p { margin: 0; color: #6b6585; }
+      button { margin-top: 8px; justify-self: center; border: 0; border-radius: 999px; padding: 12px 26px; font: inherit; font-weight: 700; color: #fff; background: #36c89c; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="build/icon.png" alt="" />
+      <h1>Нет связи · No connection</h1>
+      <p>Bloom подключится сам, как только появится интернет.<br />Bloom will reconnect as soon as you're online.</p>
+      <button id="retry" type="button">Повторить · Retry</button>
+    </main>
+    <script>
+      const to = new URLSearchParams(location.search).get("to") || "https://bloom-love.online/";
+      const retry = () => fetch(to, { mode: "no-cors", cache: "no-store" }).then(() => location.replace(to)).catch(() => {});
+      document.getElementById("retry").onclick = retry;
+      setInterval(retry, 10000);
+      addEventListener("online", retry);
+    </script>
+  </body>
+</html>

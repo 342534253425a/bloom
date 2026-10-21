@@ -1,0 +1,91 @@
+# Builds the Android app (Bloom.apk) and the Windows app (Bloom-Setup.exe) and publishes them
+# as the latest GitHub release, so the download links in the app always point to the newest build.
+name: Apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, bloom-updates]
+    paths:
+      - "android/**"
+      - "desktop/**"
+      - "capacitor.config.ts"
+      - "package.json"
+      - ".github/workflows/apps.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync android
+      - name: Build signed APK
+        env:
+          BLOOM_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          BLOOM_VERSION_CODE: ${{ github.run_number }}
+          BLOOM_VERSION_NAME: 1.0.${{ github.run_number }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_B64 }}" | base64 -d > "$RUNNER_TEMP/bloom.p12"
+          export BLOOM_KEYSTORE="$RUNNER_TEMP/bloom.p12"
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk "$GITHUB_WORKSPACE/Bloom.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: Bloom.apk
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm version 1.0.${{ github.run_number }} --no-git-tag-version --allow-same-version
+      - name: Build installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --win nsis --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: desktop/dist/Bloom-Setup.exe
+
+  release:
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "apps-${{ github.run_number }}" Bloom.apk Bloom-Setup.exe \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "Bloom apps 1.0.${{ github.run_number }}" \
+            --notes "Android: Bloom.apk · Windows: Bloom-Setup.exe" \
+            --latest

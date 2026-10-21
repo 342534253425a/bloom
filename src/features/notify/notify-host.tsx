@@ -16,6 +16,8 @@ import { db } from "@/shared/db";
 import { addDays, dateKey, daysBetween, weekdayOf } from "@/shared/lib/date";
 import { Glyph } from "@/shared/ui/glyph";
 import { Art } from "@/shared/ui/kit";
+import { askAndroidNotifications, onOpenRequest, shell } from "@/shared/lib/native";
+import { planAndroidReminders, plannedNatively } from "./android-plan";
 
 /** How long after its time a scheduled reminder may still fire (the app may open late). */
 const WINDOW_MIN = 120;
@@ -44,6 +46,8 @@ async function runSchedule(userId: string, prefs: Prefs, t: T, path: string, par
   const send = (kind: string, period: string, body: string, extra: { to?: string; title?: string; urgent?: boolean } = {}) => {
     if (alreadySent(userId, kind, period)) return;
     markSent(userId, kind, period);
+    // The Android app already showed this one by itself.
+    if (plannedNatively(kind, period)) return;
     void markServerSent(`${kind}:${period}`);
     notify({ userId, prefs, kind, title: extra.title ?? t(`notify.kind.${kind}`), body, to: extra.to, urgent: extra.urgent, tag: `${kind}-${period}` });
   };
@@ -307,6 +311,29 @@ export function NotifyHost() {
     const timer = window.setTimeout(() => void syncPushPrefs(pushSnapshot(prefs, currentLang())), 1500);
     return () => window.clearTimeout(timer);
   }, [prefs]);
+
+  // A tapped notification in the Windows or Android app opens the right screen.
+  useEffect(() => onOpenRequest((to) => void navigate({ to: to as "/" })), [navigate]);
+
+  // Android: allow notifications once, then hand upcoming reminders to the system.
+  const asked = useRef(false);
+  useEffect(() => {
+    if (shell !== "android" || !prefs) return;
+    const plan = () => void getPrefs(user.id).then((current) => planAndroidReminders(user.id, current, t));
+    if (!asked.current) {
+      asked.current = true;
+      void askAndroidNotifications().then(plan);
+    }
+    const timer = window.setTimeout(plan, 1500);
+    const every = window.setInterval(plan, 15 * 60_000);
+    const onHide = () => document.visibilityState === "hidden" && plan();
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(every);
+      document.removeEventListener("visibilitychange", onHide);
+    };
+  }, [prefs, user.id, t]);
 
   // A tap on a system notification opens the right screen.
   useEffect(() => {

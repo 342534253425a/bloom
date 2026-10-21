@@ -406,3 +406,10 @@
   text-align: center;
   color: var(--muted);
 }
+
+.form-alert.is-info {
+  background: var(--mint-100);
+  color: var(--ink);
+  font-weight: 700;
+  align-items: flex-start;
+}

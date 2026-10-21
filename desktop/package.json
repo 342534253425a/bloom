@@ -1,0 +1,53 @@
+{
+  "name": "bloom-desktop",
+  "productName": "Bloom",
+  "version": "1.0.0",
+  "description": "Bloom for Windows",
+  "author": "Bloom",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "online.bloomlove.app",
+    "productName": "Bloom",
+    "artifactName": "Bloom-Setup.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "offline.html",
+      "build/icon.png",
+      "build/dot.png"
+    ],
+    "protocols": [
+      {
+        "name": "Bloom",
+        "schemes": [
+          "bloom"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Bloom"
+    }
+  }
+}

@@ -86,6 +86,12 @@ export const strings = {
     magicTitle: ["Check your inbox", "Проверь почту", "请查看邮箱"],
     magicBody: ["We sent a sign-in code to {{email}}. Enter it below, no password needed.", "Мы отправили код для входа на {{email}}. Введи его ниже, пароль не нужен.", "登录验证码已发送至 {{email}}，请在下方输入，无需密码。"],
     magicNeedEmail: ["Type your email first, then tap the link button.", "Сначала впиши почту, потом нажми кнопку со ссылкой.", "请先输入邮箱，再点击链接按钮。"],
+    googleOutside: [
+      "Finish signing in with Google in your browser — Bloom opens by itself afterwards. If the browser asks to open Bloom, allow it.",
+      "Завершите вход через Google в браузере — потом Bloom откроется сам. Если браузер спросит «Открыть Bloom?», разрешите.",
+      "请在浏览器中完成 Google 登录，之后 Bloom 会自动打开。如果浏览器询问是否打开 Bloom，请允许。",
+    ],
+    googleBackFailed: ["Google sign-in didn't finish: {{reason}}. Try again or use a code.", "Вход через Google не завершился: {{reason}}. Попробуйте ещё раз или войдите по коду.", "Google 登录未完成：{{reason}}。请重试或使用验证码登录。"],
     googleFailed: ["Google sign-in isn't available right now.", "Вход через Google сейчас недоступен.", "Google 登录暂不可用。"],
     newPassword: ["New password", "Новый пароль", "新密码"],
     newPasswordBody: ["Choose a new password for your account.", "Придумай новый пароль для аккаунта.", "为账户设置新密码。"],
@@ -1192,6 +1198,19 @@ export const strings = {
   install: {
     title: ["Install Bloom", "Установи Bloom", "安装 Bloom"],
     short: ["Install app", "Установить", "安装应用"],
+    getApk: ["Download the Android app (APK)", "Скачать приложение для Android (APK)", "下载 Android 应用（APK）"],
+    getWindows: ["Download the Windows app", "Скачать приложение для Windows", "下载 Windows 应用"],
+    apkNote: [
+      "Best option: notifications and reminders even when Bloom is closed. Android will ask to allow installing from this source once.",
+      "Лучший вариант: уведомления и напоминания, даже когда Bloom закрыт. Android один раз попросит разрешить установку из этого источника.",
+      "推荐：即使关闭 Bloom 也能收到通知和提醒。Android 会请求一次允许从此来源安装。",
+    ],
+    windowsNote: [
+      "Lives in the tray, starts with Windows and shows notifications like Telegram. If Windows warns about an unknown publisher: More info → Run anyway.",
+      "Живёт в трее, запускается вместе с Windows и показывает уведомления, как Telegram. Если Windows предупредит о неизвестном издателе: «Подробнее» → «Выполнить в любом случае».",
+      "常驻托盘、随 Windows 启动，像 Telegram 一样显示通知。如果 Windows 提示未知发布者：点“更多信息”→“仍要运行”。",
+    ],
+    orBrowser: ["Or add the web version:", "Или добавить веб-версию:", "或添加网页版："],
     button: ["Install Bloom on this device", "Установить Bloom на устройство", "在本设备安装 Bloom"],
     why: ["Opens from your home screen like a normal app — full screen, fast and offline.", "Открывается с главного экрана как обычное приложение — на весь экран, быстро и без интернета.", "像普通应用一样从主屏幕打开：全屏、快速、可离线使用。"],
     bannerTitle: ["Put Bloom on your home screen", "Добавь Bloom на главный экран", "把 Bloom 添加到主屏幕"],

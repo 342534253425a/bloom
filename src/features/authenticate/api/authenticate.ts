@@ -8,6 +8,7 @@ import { DomainError } from "@/shared/lib/errors";
 import { createId } from "@/shared/lib/id";
 import { db, type Tone } from "@/shared/db";
 import { i18n } from "@/shared/i18n";
+import { AUTH_CALLBACK, isApp, onAuthCallback, openOutside } from "@/shared/lib/native";
 
 function toUser(user: AuthUser): PublicUser {
   const meta = user.user_metadata ?? {};
@@ -188,14 +189,45 @@ export async function sendPasswordReset(email: string): Promise<void> {
   if (error) throw authError(error.message);
 }
 
-/** Opens Google sign-in; Supabase brings the person back to Bloom already signed in. */
-export async function signInWithGoogle(): Promise<void> {
-  const { error } = await supabase.auth.signInWithOAuth({
+/**
+ * Opens Google sign-in; Supabase brings the person back to Bloom already signed in.
+ * Google refuses sign-in inside app windows, so the apps open the real browser and get
+ * the result back through a bloom:// link (see shared/lib/native).
+ * Returns true when sign-in continues outside the app.
+ */
+export async function signInWithGoogle(): Promise<boolean> {
+  const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo: window.location.origin, queryParams: { prompt: "select_account" } },
+    options: { redirectTo: isApp ? AUTH_CALLBACK : window.location.origin, queryParams: { prompt: "select_account" }, skipBrowserRedirect: isApp },
   });
   if (error) throw authError(error.message);
+  if (isApp && data.url) {
+    await openOutside(data.url);
+    return true;
+  }
+  return false;
 }
+
+/** Last error from finishing Google sign-in in the apps, shown on the sign-in screen. */
+export let appSignInError = "";
+
+onAuthCallback(async (url) => {
+  const code = url.searchParams.get("code");
+  const failure = url.searchParams.get("error_description") ?? url.searchParams.get("error");
+  if (!code) {
+    appSignInError = failure ?? "no code";
+    window.dispatchEvent(new Event("bloom:auth-callback"));
+    return;
+  }
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  if (error) {
+    appSignInError = error.message;
+    window.dispatchEvent(new Event("bloom:auth-callback"));
+    return;
+  }
+  // Start fresh so the signed-in account loads exactly like on a normal launch.
+  window.location.replace("/");
+});
 
 /** Emails a one-tap sign-in link (creates the account if it doesn't exist yet). */
 export async function sendMagicLink(email: string, name?: string): Promise<void> {

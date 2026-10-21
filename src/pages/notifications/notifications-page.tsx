@@ -10,6 +10,7 @@ import { currentSubscription, enablePush, lastPushError, needsInstallForPush, pu
 import { Empty, PageHead, Tabs } from "@/shared/ui/bloom";
 import { Glyph } from "@/shared/ui/glyph";
 import { Toggle, toast } from "@/shared/ui/kit";
+import { androidNotificationsAllowed, askAndroidNotifications, desktop, shell } from "@/shared/lib/native";
 
 type Tab = "inbox" | "settings";
 
@@ -94,6 +95,38 @@ function permissionState(): NotificationPermission | "unsupported" {
   return "Notification" in window ? Notification.permission : "unsupported";
 }
 
+/** In the Windows and Android apps notifications come from the app itself. */
+function AppNotifications() {
+  const { t } = useTranslation();
+  const [allowed, setAllowed] = useState<boolean | null>(shell === "desktop" ? true : null);
+  const [autostart, setAutostart] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (shell === "android") void androidNotificationsAllowed().then(setAllowed);
+    void desktop?.getAutostart().then(setAutostart);
+  }, []);
+  return (
+    <>
+      <strong>{allowed ? t("notify.app.on") : t("notify.permission.title")}</strong>
+      <p className="sub">{shell === "desktop" ? t("notify.app.desktopBody") : allowed ? t("notify.app.androidBody") : t("notify.permission.body")}</p>
+      {shell === "android" && allowed === false ? (
+        <button type="button" className="btn" onClick={() => void askAndroidNotifications().then(setAllowed)}>
+          <Glyph name="bell" size={18} />
+          {t("notify.device.allow")}
+        </button>
+      ) : null}
+      {desktop && autostart !== null ? (
+        <label className="notify-row">
+          <span className="notify-copy">
+            <strong>{t("notify.app.autostart")}</strong>
+            <small>{t("notify.app.autostartBody")}</small>
+          </span>
+          <Toggle on={autostart} label={t("notify.app.autostart")} onChange={(on) => void desktop!.setAutostart(on).then(setAutostart)} />
+        </label>
+      ) : null}
+    </>
+  );
+}
+
 function Settings({ userId, prefs }: { userId: string; prefs: Prefs }) {
   const { t } = useTranslation();
   const [permission, setPermission] = useState(permissionState);
@@ -139,8 +172,10 @@ function Settings({ userId, prefs }: { userId: string; prefs: Prefs }) {
       <section className="card notify-perm rise">
         <span className="notify-perm-icon">🔔</span>
         <div className="notify-perm-body">
-          <small className="tiny">{t("notify.device.this", { device: deviceName() })}</small>
-          {needsInstallForPush() ? (
+          <small className="tiny">{t("notify.device.this", { device: shell === "desktop" ? "Bloom · Windows" : shell === "android" ? "Bloom · Android" : deviceName() })}</small>
+          {shell !== "web" ? (
+            <AppNotifications />
+          ) : needsInstallForPush() ? (
             <>
               <strong>{t("notify.permission.title")}</strong>
               <p className="sub">{t("notify.permission.iosInstall")}</p>

@@ -8,7 +8,7 @@ import { burst, haptic, shake } from "@/shared/lib/motion/fx";
 import { Glyph } from "@/shared/ui/glyph";
 import { Art, Segmented } from "@/shared/ui/kit";
 import { InstallButton } from "@/widgets/install/install";
-import { loginAccount, registerAccount, resendConfirmation, sendMagicLink, sendPasswordReset, signInWithGoogle, verifyCode } from "../api/authenticate";
+import { appSignInError, loginAccount, registerAccount, resendConfirmation, sendMagicLink, sendPasswordReset, signInWithGoogle, verifyCode } from "../api/authenticate";
 import { setRecovering } from "../model/recovery";
 
 type Mode = "login" | "register";
@@ -30,6 +30,16 @@ export function AuthScreen({ initialMode = "login", onBack }: { initialMode?: Mo
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [resent, setResent] = useState(false);
+  // In the apps Google sign-in finishes in the browser; this shows a hint until the app is called back.
+  const [outside, setOutside] = useState(false);
+  useEffect(() => {
+    const onBack = () => {
+      setOutside(false);
+      setFormError(t("auth.googleBackFailed", { reason: appSignInError }));
+    };
+    window.addEventListener("bloom:auth-callback", onBack);
+    return () => window.removeEventListener("bloom:auth-callback", onBack);
+  }, [t]);
   // Every new email voids the previous code, so sending is limited to once a minute per address.
   const lastSend = useRef<{ email: string; at: number } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -182,7 +192,11 @@ export function AuthScreen({ initialMode = "login", onBack }: { initialMode?: Mo
     setFormError(null);
     setPending(true);
     try {
-      await signInWithGoogle();
+      const away = await signInWithGoogle();
+      if (away) {
+        setOutside(true);
+        setPending(false);
+      }
     } catch {
       fail(t("auth.googleFailed"));
       setPending(false);
@@ -343,6 +357,12 @@ export function AuthScreen({ initialMode = "login", onBack }: { initialMode?: Mo
         ) : null}
         {screen === "confirm" || screen === "resetSent" || screen === "linkSent" ? <p className="tiny auth-code-hint">{t("auth.codeLatest")}</p> : null}
 
+        {outside ? (
+          <p className="form-alert is-info" role="status">
+            <Glyph name="globe" size={16} />
+            {t("auth.googleOutside")}
+          </p>
+        ) : null}
         {formError ? (
           <p className="form-alert" role="alert">
             <Glyph name="sparkle" size={16} />

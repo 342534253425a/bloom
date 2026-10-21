@@ -1,8 +1,10 @@
 import { supabase } from "@/shared/api/supabase";
+import { isApp } from "@/shared/lib/native";
 
 /** Web Push: lets the server reach this device when Bloom is closed (supabase/functions/push). */
 
-export const pushSupported = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+// The apps deliver notifications themselves (see shared/lib/native), not through Web Push.
+export const pushSupported = !isApp && typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 
 export function isIos() {
   return /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);

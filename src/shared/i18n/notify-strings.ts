@@ -127,6 +127,21 @@ export const notifyStrings = {
     partnerDayBody: ["When your partner finishes all habits", "Когда партнёр закрыл все привычки", "伙伴完成所有习惯时"],
   },
 
+  app: {
+    on: ["Notifications are on", "Уведомления включены", "通知已开启"],
+    desktopBody: [
+      "Bloom keeps running in the tray when you close the window and shows Windows notifications. To quit completely: right-click the tray icon → Quit.",
+      "Когда закрываете окно, Bloom остаётся в трее (возле часов) и показывает уведомления Windows. Чтобы выйти совсем: правый клик по значку в трее → «Выйти».",
+      "关闭窗口后 Bloom 会留在托盘中并显示 Windows 通知。要完全退出：右键托盘图标 →“退出”。",
+    ],
+    androidBody: [
+      "Reminders arrive even when Bloom is closed. If some come late, allow Bloom to run without battery restrictions in Android settings.",
+      "Напоминания приходят, даже когда Bloom закрыт. Если какие-то опаздывают, разрешите Bloom работать без ограничений батареи в настройках Android.",
+      "即使关闭 Bloom 也会收到提醒。如果有延迟，请在 Android 设置中允许 Bloom 不受电池限制运行。",
+    ],
+    autostart: ["Start with Windows", "Запускать вместе с Windows", "随 Windows 启动"],
+    autostartBody: ["Opens quietly in the tray so nothing is missed.", "Тихо открывается в трее, чтобы ничего не пропустить.", "在托盘中静默启动，不错过任何消息。"],
+  },
   msg: {
     morning: ["Good morning! How are you feeling? 🌤", "Доброе утро! Как ты себя чувствуешь? 🌤", "早上好！今天感觉怎么样？🌤"],
     planEmpty: ["Nothing planned yet. Pick 1–3 things for today?", "Пока ничего не запланировано. Выберешь 1–3 дела на сегодня?", "还没有计划，选 1–3 件今天要做的事？"],

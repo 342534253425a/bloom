@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bloom</title>
+    <style>
+      html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: #f3f1f8; color: #3a3550; }
+      main { height: 100%; display: grid; place-content: center; text-align: center; gap: 10px; padding: 24px; }
+      img { width: 140px; margin: 0 auto; }
+      h1 { margin: 0; font-size: 22px; }
+      p { margin: 0; color: #6b6585; }
+      button { margin-top: 8px; justify-self: center; border: 0; border-radius: 999px; padding: 12px 26px; font: inherit; font-weight: 700; color: #fff; background: #36c89c; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/mascot/wave.png" alt="" />
+      <h1>Нет связи · No connection</h1>
+      <p>Bloom подключится сам, как только появится интернет.<br />Bloom will reconnect as soon as you're online.</p>
+      <button type="button" onclick="retry()">Повторить · Retry</button>
+    </main>
+    <script>
+      const site = "https://bloom-love.online/";
+      function retry() {
+        fetch(site, { mode: "no-cors", cache: "no-store" }).then(() => location.replace(site)).catch(() => {});
+      }
+      setInterval(retry, 10000);
+      addEventListener("online", retry);
+    </script>
+  </body>
+</html>

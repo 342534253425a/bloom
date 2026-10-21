@@ -5,6 +5,7 @@ import { Tabs } from "@/shared/ui/bloom";
 import { Glyph, type GlyphName } from "@/shared/ui/glyph";
 import { Art, toast } from "@/shared/ui/kit";
 import { Sheet } from "@/shared/ui/sheet";
+import { DOWNLOADS } from "@/shared/lib/native";
 
 type Guide = "ios" | "android" | "desktop";
 
@@ -94,6 +95,14 @@ export function InstallGuide({ onDone }: { onDone?: () => void }) {
           { id: "desktop", label: t("install.computer") },
         ]}
       />
+      {guide !== "ios" ? (
+        <a className="btn is-block install-download" href={guide === "android" ? DOWNLOADS.android : DOWNLOADS.windows} target="_blank" rel="noopener">
+          <Glyph name="download" size={20} stroke={2.4} />
+          {guide === "android" ? t("install.getApk") : t("install.getWindows")}
+        </a>
+      ) : null}
+      {guide !== "ios" ? <p className="tiny center">{guide === "android" ? t("install.apkNote") : t("install.windowsNote")}</p> : null}
+      {guide !== "ios" ? <p className="tiny install-or">{t("install.orBrowser")}</p> : null}
       <ol className="install-steps">
         {steps[guide].map((step, index) => (
           <li key={step.key}>

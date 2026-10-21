@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type { Prefs } from "@/entities/prefs";
 import { kindById, notifyKinds, type NotifyKind } from "@/shared/config/notifications";
+import { appNotification, inFront, isApp, setUnread } from "@/shared/lib/native";
 import type { PushSnapshot } from "@/shared/lib/push";
 
 /* ------------------------------------------------------------------ settings */
@@ -82,6 +83,7 @@ function save() {
 }
 
 function emit() {
+  setUnread(inbox.filter((item) => !item.read).length);
   for (const listener of listeners) listener();
 }
 
@@ -173,12 +175,13 @@ export function notify(input: NotifyInput): boolean {
   save();
   emit();
   if (inQuiet(input.prefs) && !input.urgent) return true;
-  if (document.visibilityState === "visible") {
+  if (isApp ? inFront() : document.visibilityState === "visible") {
     if (!input.silentInApp) {
       banner = { id, kind, title: input.title, body: input.body, to };
       for (const listener of bannerListeners) listener();
     }
-  } else if (!pushActive) void systemNotification(input.title, input.body, to, input.tag ?? input.kind);
+  } else if (isApp) appNotification({ title: input.title, body: input.body, to, tag: input.tag ?? input.kind, urgent: input.urgent });
+  else if (!pushActive) void systemNotification(input.title, input.body, to, input.tag ?? input.kind);
   return true;
 }
 

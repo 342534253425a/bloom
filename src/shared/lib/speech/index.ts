@@ -3,6 +3,8 @@
  * recognition for a word-level "did you say it right" check. No keys, no cost.
  */
 
+import { shell } from "@/shared/lib/native";
+
 let voicesReady: Promise<SpeechSynthesisVoice[]> | null = null;
 
 function voices(): Promise<SpeechSynthesisVoice[]> {
@@ -17,10 +19,17 @@ function voices(): Promise<SpeechSynthesisVoice[]> {
   return voicesReady;
 }
 
-export const canSpeak = typeof window !== "undefined" && "speechSynthesis" in window;
+// The Android app has no browser speech, so it uses the phone's own voices and recogniser.
+export const canSpeak = shell === "android" || (typeof window !== "undefined" && "speechSynthesis" in window);
 
 /** Speaks text; `lang` like "en-GB" or "zh-CN", `rate` 0.5 (very slow) … 1.2 (fast). */
 export async function speak(text: string, lang = "en-GB", rate = 0.95): Promise<void> {
+  if (shell === "android") {
+    const { TextToSpeech } = await import("@capacitor-community/text-to-speech");
+    await TextToSpeech.stop().catch(() => undefined);
+    await TextToSpeech.speak({ text, lang, rate, category: "playback" }).catch(() => undefined);
+    return;
+  }
   if (!canSpeak) return;
   const list = await voices();
   speechSynthesis.cancel();
@@ -59,7 +68,8 @@ function recognitionCtor(): RecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-export const canListen = recognitionCtor() !== null;
+// The Windows app has the browser recogniser but not Google's speech service behind it.
+export const canListen = shell === "android" || (shell !== "desktop" && recognitionCtor() !== null);
 
 export type Heard = { alternatives: Array<{ text: string; confidence: number }> };
 export type ListenError = "unsupported" | "denied" | "no-speech" | "network" | "aborted" | "other";
@@ -68,6 +78,7 @@ export type Listening = { done: Promise<Heard>; stop: () => void };
 
 /** Listens for one short utterance and returns what the recogniser thinks was said. */
 export function listen(lang = "en-GB"): Listening {
+  if (shell === "android") return listenAndroid(lang);
   const Ctor = recognitionCtor();
   if (!Ctor) return { done: Promise.reject<Heard>("unsupported" satisfies ListenError), stop: () => {} };
   const rec = new Ctor();
@@ -93,6 +104,28 @@ export function listen(lang = "en-GB"): Listening {
   });
   rec.start();
   return { done, stop: () => rec.stop() };
+}
+
+function listenAndroid(lang: string): Listening {
+  let stop = () => {};
+  const done = (async (): Promise<Heard> => {
+    const { SpeechRecognition } = await import("@capacitor-community/speech-recognition");
+    const { available } = await SpeechRecognition.available();
+    if (!available) throw "unsupported" satisfies ListenError;
+    const allowed = await SpeechRecognition.requestPermissions();
+    if (allowed.speechRecognition !== "granted") throw "denied" satisfies ListenError;
+    stop = () => void SpeechRecognition.stop().catch(() => undefined);
+    try {
+      const result = await SpeechRecognition.start({ language: lang, maxResults: 5, partialResults: false, popup: false });
+      const matches = result.matches ?? [];
+      if (!matches.length) throw "no-speech" satisfies ListenError;
+      return { alternatives: matches.map((text, index) => ({ text, confidence: index === 0 ? 0.9 : 0.5 })) };
+    } catch (error) {
+      if (typeof error === "string") throw error;
+      throw (/no match|no speech/i.test(String((error as Error)?.message)) ? "no-speech" : "other") satisfies ListenError;
+    }
+  })();
+  return { done, stop: () => stop() };
 }
 
 const norm = (s: string) =>
