@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { getItems, markRead, messageOrder, sendMessage, useCouple, useItems, useUnread, type CoupleItem, type MessageData } from "@/entities/couple";
 import type { CardData, RatingData, RecordingData } from "@/entities/couple/phrasebook";
 import { readBoard } from "@/entities/habit";
-import { alreadySent, dismissBanner, kindOn, kindTime, markSent, notify, pushSnapshot, setPushActive, useBanner } from "@/entities/notify";
+import { alreadySent, kindOn, kindTime, markSent, notify, pushSnapshot, setPushActive } from "@/entities/notify";
 import { currentLang } from "@/shared/i18n";
 import { enableAndroidPush, ensurePush, markServerSent, syncPushPrefs } from "@/shared/lib/push";
 import { getPrefs, usePrefs, type Prefs } from "@/entities/prefs";
@@ -14,9 +14,7 @@ import { stats } from "@/entities/vocab";
 import { chineseStarter } from "@/shared/data/chinese-starter";
 import { db } from "@/shared/db";
 import { addDays, dateKey, daysBetween, weekdayOf } from "@/shared/lib/date";
-import { Glyph } from "@/shared/ui/glyph";
-import { Art } from "@/shared/ui/kit";
-import { askAndroidNotifications, dismissAppNotification, onNoteAction, onOpenRequest, shell } from "@/shared/lib/native";
+import { askAndroidNotifications, dismissAppNotification, onNoteAction, onOpenRequest, setUnread, shell } from "@/shared/lib/native";
 import { planAndroidReminders, plannedNatively } from "./android-plan";
 
 /** How long after its time a scheduled reminder may still fire (the app may open late). */
@@ -206,6 +204,8 @@ function usePartnerEvents(userId: string, prefs: Prefs | undefined, t: T, path: 
   const kinds = ["msg", "effect", "focus", "garden", "answer", "pcheck", "phabit", "duel", "duelscore", "cnrec", "cnrate", "cn", "day"];
   const all = kinds.map((kind) => useItems(kind)); // eslint-disable-line react-hooks/rules-of-hooks
   const seen = useRef<Map<string, string> | null>(null);
+  // Only what happens while Bloom is open counts; the history loaded from the server is old news.
+  const since = useRef(Date.now() - 60_000);
   const wasOnline = useRef<boolean | null>(null);
   const wasActivity = useRef<string | null>(null);
 
@@ -216,26 +216,27 @@ function usePartnerEvents(userId: string, prefs: Prefs | undefined, t: T, path: 
       seen.current = new Map(flat.map((item) => [item.id, item.updated_at]));
       return;
     }
-    const fresh = flat.filter((item) => seen.current!.get(item.id) !== item.updated_at);
+    const fresh = flat.filter((item) => seen.current!.get(item.id) !== item.updated_at && Date.parse(item.updated_at) > since.current);
+    for (const item of flat) if (!fresh.includes(item)) seen.current.set(item.id, item.updated_at);
     const isNew = (item: CoupleItem) => !seen.current!.has(item.id);
     for (const item of fresh) {
       const d = item.data as Record<string, unknown>;
-      const say = (kind: string, body: string, extra: { silentInApp?: boolean; to?: string; chat?: { lines: string[]; count: number } } = {}) => notify({ userId, prefs, kind, title: name, body, tag: `${kind}-${item.id}`, ...extra });
+      const say = (kind: string, body: string, extra: { to?: string; chat?: { lines: string[]; count: number } } = {}) => notify({ userId, prefs, kind, title: name, body, tag: `${kind}-${item.id}`, ...extra });
       switch (item.kind) {
         case "msg":
           // A finished call needs no notification; a missed one does.
           if (isNew(item) && item.author === partnerId && (d.call as MessageData["call"])?.status !== "ended") {
             const chat = unreadChat(userId, partnerId, t);
             const text = chat.lines.at(-1) ?? "";
-            say("message", text, { silentInApp: path.startsWith("/together/chat") || path.startsWith("/watch"), chat });
+            say("message", text, { chat });
           }
           break;
         case "effect":
-          if (isNew(item) && d.to === userId) say("love", t("notify.msg.love", { name }), { silentInApp: true });
+          if (isNew(item) && d.to === userId) say("love", t("notify.msg.love", { name }));
           break;
         case "focus":
           if (d.phase === "focus" && d.by === partnerId && !d.pausedLeft && d.startedAt && Date.now() - Date.parse(String(d.startedAt)) < 60_000)
-            say("sharedFocus", t("notify.msg.sharedFocus", { name, minutes: d.minutes }), { silentInApp: path.startsWith("/focus") });
+            say("sharedFocus", t("notify.msg.sharedFocus", { name, minutes: d.minutes }));
           break;
         case "garden":
           if (d.lastBy === partnerId) say("garden", t("notify.msg.garden", { name }));
@@ -302,7 +303,7 @@ function usePartnerEvents(userId: string, prefs: Prefs | undefined, t: T, path: 
   }, [couple.presence.online, couple.presence.activity, prefs, partnerId]);
 }
 
-/** Runs every notification source while Bloom is open and shows the in-app banner. */
+/** Runs every notification source while Bloom is open (they show up only when Bloom is in the background). */
 export function NotifyHost() {
   const { t } = useTranslation();
   const user = useUser();
@@ -310,7 +311,6 @@ export function NotifyHost() {
   const couple = useCouple();
   const path = useRouterState({ select: (state) => state.location.pathname });
   const navigate = useNavigate();
-  const banner = useBanner();
   const progress = useProgress(user.id);
   const pathRef = useRef(path);
   pathRef.current = path;
@@ -351,6 +351,7 @@ export function NotifyHost() {
   // Once the chat is read (here or on another device) its notification goes away.
   const unread = useUnread();
   useEffect(() => {
+    setUnread(unread);
     if (unread === 0) dismissAppNotification("chat");
   }, [unread]);
 
@@ -415,37 +416,5 @@ export function NotifyHost() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [level]);
 
-  // Banners close themselves after a while.
-  useEffect(() => {
-    if (!banner) return;
-    const timer = window.setTimeout(dismissBanner, 9000);
-    return () => window.clearTimeout(timer);
-  }, [banner]);
-
-  if (!banner) return null;
-  return (
-    <div className="nudge rise" role="status" key={banner.id}>
-      {banner.kind?.icon ? <span className="nudge-icon">{banner.kind.icon}</span> : <Art name="c-peek-right" className="nudge-art" eager />}
-      <p>
-        <strong>{banner.title}</strong>
-        <br />
-        {banner.body}
-      </p>
-      <div className="nudge-actions">
-        <button
-          type="button"
-          className="btn is-sm"
-          onClick={() => {
-            dismissBanner();
-            void navigate({ to: banner.to as "/" });
-          }}
-        >
-          {t("notify.open")}
-        </button>
-        <button type="button" className="nudge-close" aria-label={t("common.close")} onClick={dismissBanner}>
-          <Glyph name="close" size={16} stroke={2.4} />
-        </button>
-      </div>
-    </div>
-  );
+  return null;
 }

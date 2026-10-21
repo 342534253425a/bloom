@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { getCouple, getItem, getItems, myId, onSignal, putItem, sendMessage, signal, type TurnData } from "@/entities/couple";
+import { supabase } from "@/shared/api/supabase";
 import { createId } from "@/shared/lib/id";
 import { iceServers } from "@/shared/lib/webrtc/share";
 import { CallLink, openCamera, openMic, openScreen, type CallSignal, type RemoteMedia } from "@/shared/lib/webrtc/call";
@@ -111,8 +112,28 @@ function sendMedia() {
   send("media", { mic: state.mic, cam: state.cam, screen: state.screen });
 }
 
+/** The relay (TURN) the server hands out, fetched ahead of a call and kept for a few hours. */
+let relay: { servers: RTCIceServer[]; until: number } | null = null;
+let relayLoading: Promise<void> | null = null;
+
+function loadRelay(): Promise<void> {
+  if (relay && relay.until > Date.now()) return Promise.resolve();
+  relayLoading ??= Promise.race([
+    supabase.functions.invoke("push", { body: { type: "turn" } }).then(({ data }) => {
+      const list = (data as { iceServers?: RTCIceServer[] } | null)?.iceServers;
+      if (Array.isArray(list)) relay = { servers: list, until: Date.now() + (list.length ? 6 * 3600_000 : 10 * 60_000) };
+    }),
+    new Promise<void>((resolve) => window.setTimeout(resolve, 5000)),
+  ])
+    .catch(() => undefined)
+    .finally(() => {
+      relayLoading = null;
+    });
+  return relayLoading;
+}
+
 function servers(): RTCIceServer[] {
-  return iceServers(getItem<TurnData>("turn")?.data ?? null);
+  return [...iceServers(getItem<TurnData>("turn")?.data ?? null), ...(relay?.servers ?? [])];
 }
 
 async function startMedia(video: boolean) {
@@ -168,6 +189,7 @@ export async function startCall(video: boolean): Promise<StartError | null> {
   if (state.phase !== "idle" && state.phase !== "ended") return "busy";
   reset();
   set({ phase: "outgoing", video, caller: true, id: `call:${createId()}`, facing: "user" });
+  void loadRelay();
   try {
     await startMedia(video);
   } catch {
@@ -195,11 +217,12 @@ export async function acceptCall(video: boolean): Promise<StartError | null> {
   if (state.phase !== "incoming") return null;
   set({ phase: "connecting" });
   try {
-    await startMedia(video);
+    await Promise.all([startMedia(video), loadRelay()]);
   } catch {
     decline();
     return "media";
   }
+  if (getCall().phase !== "connecting") return null;
   makeLink(false);
   send("accept");
   return null;
@@ -365,6 +388,7 @@ function ring(id: string, video: boolean, callerDevice: string | undefined) {
   }
   reset();
   set({ phase: "incoming", id, video, caller: false });
+  void loadRelay();
   // Stop ringing if the caller gives up without telling us (closed app, lost network).
   window.clearTimeout(ringTimer);
   ringTimer = window.setTimeout(() => state.phase === "incoming" && state.id === id && finish("missed", false), RING_MS);
@@ -402,8 +426,11 @@ export function listenForCalls() {
           set({ phase: "connecting" });
           const item = getItem<CallItem>(message.id);
           if (item) void putItem(message.id, "call", { ...item.data, state: "accepted" }).catch(() => undefined);
-          makeLink(true);
-          void link?.offer();
+          void loadRelay().then(() => {
+            if (state.phase !== "connecting" || state.id !== message.id) return;
+            makeLink(true);
+            void link?.offer();
+          });
         }
         break;
       case "decline":

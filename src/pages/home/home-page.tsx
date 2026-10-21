@@ -25,7 +25,6 @@ import { Art, Bar, Ring, Tile, at, toast } from "@/shared/ui/kit";
 import { SpacesGrid } from "@/widgets/spaces-grid/spaces-grid";
 import { Tour } from "@/widgets/tour/tour";
 import { InstallBanner } from "@/widgets/install/install";
-import { BellButton } from "@/features/notify/bell";
 import { PushPrompt } from "@/features/notify/push-prompt";
 
 export function HomePage() {
@@ -84,7 +83,6 @@ export function HomePage() {
           <p className="sub">{t(`home.line${part[0]!.toUpperCase()}${part.slice(1)}`)}</p>
         </div>
         <div className="home-head-actions">
-          <BellButton />
           <Link to="/settings" className="round-btn mob-only" aria-label={t("nav.settings")}>
             <Glyph name="settings" size={21} stroke={2.1} />
           </Link>

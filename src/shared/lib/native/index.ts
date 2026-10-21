@@ -229,22 +229,6 @@ export async function startShell() {
   await LocalNotifications.createChannel({ id: "bloom", name: "Bloom", importance: 4, visibility: 1, vibration: true, lights: true, lightColor: "#5ccfa0" }).catch(() => undefined);
   const { StatusBar, Style } = await import("@capacitor/status-bar");
   void StatusBar.setStyle({ style: Style.Light }).catch(() => undefined);
-  void offerAndroidUpdate(App);
-  window.setInterval(() => void offerAndroidUpdate(App), 6 * 3600_000);
-}
-
-/** The page updates by itself; the Android app shell only when a newer APK is published. */
-async function offerAndroidUpdate(App: typeof import("@capacitor/app").App) {
-  try {
-    const [{ build }, release] = await Promise.all([
-      App.getInfo(),
-      fetch("https://api.github.com/repos/342534253425a/bloom/releases/latest").then((res) => res.json() as Promise<{ tag_name?: string }>),
-    ]);
-    const latest = Number(release.tag_name?.replace("apps-", "") ?? 0);
-    if (latest && latest > Number(build)) setAppUpdate({ state: "ready", version: `1.0.${latest}`, percent: 100 });
-  } catch {
-    /* offline or GitHub unreachable */
-  }
 }
 
 /* ------------------------------------------------------------------ app updates */

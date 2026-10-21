@@ -1,7 +1,6 @@
-import { useSyncExternalStore } from "react";
 import type { Prefs } from "@/entities/prefs";
-import { kindById, notifyKinds, type NotifyKind } from "@/shared/config/notifications";
-import { appNotification, inFront, isApp, setUnread, shell } from "@/shared/lib/native";
+import { kindById, notifyKinds } from "@/shared/config/notifications";
+import { appNotification, inFront, isApp, shell } from "@/shared/lib/native";
 import type { PushSnapshot } from "@/shared/lib/push";
 import { currentLang } from "@/shared/i18n";
 
@@ -55,81 +54,13 @@ export function inQuiet(prefs: Pick<Prefs, "quietOn" | "quietFrom" | "quietTo">,
   return from <= to ? current >= from && current < to : current >= from || current < to;
 }
 
-/* ------------------------------------------------------------------ inbox */
-
-export type InboxItem = { id: string; kind: string; title: string; body: string; to: string; at: string; read: boolean };
-
-let owner = "";
-let inbox: InboxItem[] = [];
-const listeners = new Set<() => void>();
-const key = () => `bloom.inbox.${owner}`;
-
-function load(userId: string) {
-  if (owner === userId) return;
-  owner = userId;
-  try {
-    inbox = JSON.parse(localStorage.getItem(key()) ?? "[]") as InboxItem[];
-  } catch {
-    inbox = [];
-  }
-  emit();
-}
-
-function save() {
-  try {
-    localStorage.setItem(key(), JSON.stringify(inbox.slice(0, 120)));
-  } catch {
-    /* storage may be unavailable */
-  }
-}
-
-function emit() {
-  setUnread(inbox.filter((item) => !item.read).length);
-  for (const listener of listeners) listener();
-}
-
-export function useInbox(userId: string): InboxItem[] {
-  load(userId);
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    () => inbox,
-  );
-}
-
-export function markAllRead() {
-  inbox = inbox.map((item) => (item.read ? item : { ...item, read: true }));
-  save();
-  emit();
-}
-
-export function clearInbox() {
-  inbox = [];
-  save();
-  emit();
-}
-
 /* ------------------------------------------------------------------ delivery */
 
-export type Banner = { id: string; kind: NotifyKind | undefined; title: string; body: string; to: string };
-let banner: Banner | null = null;
-const bannerListeners = new Set<() => void>();
-
-export function useBanner(): Banner | null {
-  return useSyncExternalStore(
-    (listener) => {
-      bannerListeners.add(listener);
-      return () => bannerListeners.delete(listener);
-    },
-    () => banner,
-  );
-}
-
-export function dismissBanner() {
-  banner = null;
-  for (const listener of bannerListeners) listener();
+// Older versions kept a notification inbox on the device; it is gone, so its leftovers are cleared once.
+try {
+  for (const name of Object.keys(localStorage)) if (name.startsWith("bloom.inbox.")) localStorage.removeItem(name);
+} catch {
+  /* storage may be unavailable */
 }
 
 /** True when this device receives Web Push, so the page leaves system notifications to the server. */
@@ -161,29 +92,21 @@ export type NotifyInput = {
   tag?: string;
   /** Partner events and timers ignore quiet hours only when explicitly asked. */
   urgent?: boolean;
-  /** Skip the in-app banner (e.g. when the toast is already shown elsewhere). */
-  silentInApp?: boolean;
   /** Chat messages: the latest unread lines and how many there are, shown together like messengers do. */
   chat?: { lines: string[]; count: number };
 };
 
-/** Records a notification in the centre, shows a banner in the app, or a system notification when Bloom is in the background. */
+/**
+ * Shows a system notification (or a Bloom card in the Windows app) when Bloom is in the background.
+ * While Bloom is open in front nothing pops up: the chat badge and the screens themselves show what's new.
+ */
 export function notify(input: NotifyInput): boolean {
   if (!kindOn(input.prefs, input.kind)) return false;
-  load(input.userId);
+  if (inQuiet(input.prefs) && !input.urgent) return true;
+  if (isApp ? inFront() : document.visibilityState === "visible") return true;
   const kind = kindById.get(input.kind);
   const to = input.to ?? kind?.to ?? "/";
-  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  inbox = [{ id, kind: input.kind, title: input.title, body: input.body, to, at: new Date().toISOString(), read: false }, ...inbox].slice(0, 120);
-  save();
-  emit();
-  if (inQuiet(input.prefs) && !input.urgent) return true;
-  if (isApp ? inFront() : document.visibilityState === "visible") {
-    if (!input.silentInApp) {
-      banner = { id, kind, title: input.title, body: input.body, to };
-      for (const listener of bannerListeners) listener();
-    }
-  } else if (isApp) {
+  if (isApp) {
     // On Android with Firebase the server already pushed partner events to this phone.
     if (!(shell === "android" && pushActive && kind?.group === "partner"))
       appNotification({ title: input.title, body: input.body, to, tag: input.tag ?? input.kind, urgent: input.urgent, chat: Boolean(input.chat), lines: input.chat?.lines, count: input.chat?.count, lang: currentLang() });

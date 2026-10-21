@@ -491,6 +491,33 @@ async function itemEvent(op: string, record: Item, old: Item | null, actor: stri
   await deliver(subs, { title, body, url: urls[kind], tag: kind === "message" ? "message" : `${kind}-${record.id}`, count });
 }
 
+/* ------------------------------------------------------------------ call relay */
+
+/**
+ * Short-lived Cloudflare TURN credentials for calls, so two people behind strict networks (Russia ↔ China)
+ * still connect through a relay. Needs the secrets CF_TURN_KEY_ID and CF_TURN_TOKEN; without them calls go direct.
+ */
+async function turnServers(): Promise<unknown[]> {
+  const keyId = Deno.env.get("CF_TURN_KEY_ID");
+  const apiToken = Deno.env.get("CF_TURN_TOKEN");
+  if (!keyId || !apiToken) return [];
+  const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate-ice-servers`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${apiToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ ttl: 12 * 3600 }),
+  });
+  if (!res.ok) {
+    console.error("turn", res.status, await res.text());
+    return [];
+  }
+  const data = (await res.json()) as { iceServers?: { urls: string | string[]; username?: string; credential?: string }[] | { urls: string | string[]; username?: string; credential?: string } };
+  const list = Array.isArray(data.iceServers) ? data.iceServers : data.iceServers ? [data.iceServers] : [];
+  // Browsers refuse port 53, and trying it only slows the connection down.
+  return list
+    .map((server) => ({ ...server, urls: (Array.isArray(server.urls) ? server.urls : [server.urls]).filter((url) => !/:53(\?|$)/.test(url)) }))
+    .filter((server) => server.urls.length);
+}
+
 /* ------------------------------------------------------------------ entry */
 
 Deno.serve(async (req) => {
@@ -507,6 +534,12 @@ Deno.serve(async (req) => {
       const lang = subs[0]?.prefs?.lang ?? subs[0]?.lang ?? "en";
       await deliver(subs, { title: "Bloom 🌱", body: say(lang, "test"), url: "/notifications", tag: "test" });
       return Response.json({ sent: subs.length }, { headers: cors });
+    }
+    if (body.type === "turn") {
+      const token = (req.headers.get("authorization") ?? "").replace(/^Bearer /i, "");
+      const { data: who } = await db.auth.getUser(token);
+      if (!who?.user) return Response.json({ error: "not signed in" }, { status: 401, headers: cors });
+      return Response.json({ iceServers: await turnServers() }, { headers: cors });
     }
     if (req.headers.get("x-bloom-hook") !== cfg.hook_secret) return new Response("forbidden", { status: 403, headers: cors });
     if (body.type === "test_all") {

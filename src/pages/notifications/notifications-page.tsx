@@ -1,84 +1,24 @@
-import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { clearInbox, kindOn, kindTime, markAllRead, pushSnapshot, setPushActive, timePatch, togglePatch, useInbox } from "@/entities/notify";
+import { kindOn, kindTime, pushSnapshot, setPushActive, timePatch, togglePatch } from "@/entities/notify";
 import { savePrefs, usePrefs, type Prefs } from "@/entities/prefs";
 import { useUser } from "@/entities/session";
-import { kindById, notifyGroups, notifyKinds } from "@/shared/config/notifications";
+import { notifyGroups, notifyKinds } from "@/shared/config/notifications";
 import { currentLang } from "@/shared/i18n";
 import { currentSubscription, enablePush, lastPushError, listPushDevices, needsInstallForPush, pushSupported, removePushDevice, type EnableResult, type PushDevice } from "@/shared/lib/push";
-import { Empty, PageHead, Tabs } from "@/shared/ui/bloom";
+import { PageHead } from "@/shared/ui/bloom";
 import { Glyph } from "@/shared/ui/glyph";
 import { Toggle, toast } from "@/shared/ui/kit";
 import { androidNotificationsAllowed, askAndroidNotifications, desktop, shell } from "@/shared/lib/native";
-
-type Tab = "inbox" | "settings";
 
 export function NotificationsPage() {
   const { t } = useTranslation();
   const user = useUser();
   const prefs = usePrefs(user.id);
-  const inbox = useInbox(user.id);
-  const unread = inbox.filter((item) => !item.read).length;
-  const [tab, setTab] = useState<Tab>(() => (inbox.length ? "inbox" : "settings"));
-
-  // Opening the inbox marks everything read after a moment.
-  useEffect(() => {
-    if (tab !== "inbox" || !unread) return;
-    const timer = window.setTimeout(markAllRead, 1500);
-    return () => window.clearTimeout(timer);
-  }, [tab, unread]);
-
   return (
     <div className="page">
-      <PageHead title={t("notify.title")} sub={t("notify.sub")} art="i-bell" back />
-      <Tabs
-        value={tab}
-        onChange={setTab}
-        options={[
-          { id: "inbox", label: `${t("notify.inbox")}${unread ? ` · ${unread}` : ""}` },
-          { id: "settings", label: t("notify.settings") },
-        ]}
-      />
-      {tab === "inbox" ? <Inbox userId={user.id} /> : prefs ? <Settings userId={user.id} prefs={prefs} /> : null}
-    </div>
-  );
-}
-
-function timeAgo(iso: string, lang: string) {
-  const diff = (Date.now() - Date.parse(iso)) / 1000;
-  const rtf = new Intl.RelativeTimeFormat(lang, { numeric: "auto" });
-  if (diff < 60) return rtf.format(0, "second");
-  if (diff < 3600) return rtf.format(-Math.round(diff / 60), "minute");
-  if (diff < 86400) return rtf.format(-Math.round(diff / 3600), "hour");
-  return rtf.format(-Math.round(diff / 86400), "day");
-}
-
-function Inbox({ userId }: { userId: string }) {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  const inbox = useInbox(userId);
-  if (!inbox.length) return <Empty art="c-sleep-cloud" title={t("notify.empty")} body={t("notify.emptyBody")} />;
-  return (
-    <div className="inbox">
-      <div className="row-btns is-end">
-        <button type="button" className="btn is-sm is-ghost" onClick={markAllRead}>
-          {t("notify.markRead")}
-        </button>
-        <button type="button" className="btn is-sm is-ghost" onClick={clearInbox}>
-          {t("notify.clear")}
-        </button>
-      </div>
-      {inbox.map((item) => (
-        <button key={item.id} type="button" className={`card inbox-row ${item.read ? "" : "is-unread"}`} onClick={() => void navigate({ to: item.to as "/" })}>
-          <span className="inbox-icon">{kindById.get(item.kind)?.icon ?? "🔔"}</span>
-          <span className="inbox-copy">
-            <strong>{item.title}</strong>
-            <span>{item.body}</span>
-          </span>
-          <small className="inbox-time">{timeAgo(item.at, currentLang())}</small>
-        </button>
-      ))}
+      <PageHead title={t("notify.title")} sub={t("notify.sub")} back />
+      {prefs ? <Settings userId={user.id} prefs={prefs} /> : null}
     </div>
   );
 }

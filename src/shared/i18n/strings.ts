@@ -1199,8 +1199,7 @@ export const strings = {
   /* ---------- Install as an app ---------- */
   update: {
     button: ["Update Bloom", "Обновить Bloom", "更新 Bloom"],
-    hint: ["A new version is ready", "Новая версия уже готова", "新版本已就绪"],
-    loading: ["Downloading update… {{percent}}%", "Загрузка обновления… {{percent}}%", "正在下载更新… {{percent}}%"],
+    hint: ["Restart to the new version", "Перезапустить в новую версию", "重启即可使用新版本"],
   },
   install: {
     title: ["Install Bloom", "Установи Bloom", "安装 Bloom"],

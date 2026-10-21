@@ -70,7 +70,7 @@ export function FocusPage() {
     toast(text, isBreak ? "c-wave-sun" : "c-arms-up");
     if (!alreadySent(user.id, "focusEnd", finished.id)) {
       markSent(user.id, "focusEnd", finished.id);
-      void getPrefs(user.id).then((prefs) => notify({ userId: user.id, prefs, kind: "focusEnd", title: t("focus.notify"), body: text, urgent: true, silentInApp: true }));
+      void getPrefs(user.id).then((prefs) => notify({ userId: user.id, prefs, kind: "focusEnd", title: t("focus.notify"), body: text, urgent: true }));
     }
   }, [finished, t, user.id]);
 

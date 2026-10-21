@@ -17,7 +17,6 @@ import { NotifyAsk } from "@/features/notify/notify-ask";
 import { NotifyHost } from "@/features/notify/notify-host";
 import { CallHost } from "@/features/call/call-host";
 import { UpdateButton } from "./update-button";
-import { useInbox } from "@/entities/notify";
 import { RecoverySheet } from "./recovery-sheet";
 import { CoupleBridge } from "./couple-bridge";
 import { useUnread } from "@/entities/couple";
@@ -95,7 +94,6 @@ export function AppShell() {
       items: [
         { to: "/together", label: t("couple.title"), art: "c-pair-hearts", tone: "pink" },
         { to: "/learn", label: t("learn.title"), art: "c-read", tone: "sun" },
-        { to: "/notifications", label: t("notify.title"), art: "i-bell", tone: "peach" },
         { to: "/privacy", label: t("nav.privacy"), art: "i-shield", tone: "sky" },
         { to: "/settings", label: t("nav.settings"), art: "o-gear", tone: "lav" },
       ],
@@ -134,13 +132,12 @@ export function AppShell() {
                   <Tile name={item.art} tone={item.tone} size={32} />
                   <span>{item.label}</span>
                   {item.to === "/together" ? <UnreadDot /> : null}
-                  {item.to === "/notifications" ? <InboxDot /> : null}
                 </Link>
               ))}
             </div>
           ))}
         </nav>
-        <UpdateButton place="side" />
+        <UpdateButton />
         <InstallButton className="side-install" />
       </aside>
 
@@ -207,7 +204,6 @@ export function AppShell() {
       <RecoverySheet />
       <NotifyAsk />
       <CallHost />
-      <UpdateButton place="float" />
       {prefs && !prefs.onboarded ? <Onboarding onDone={() => void savePrefs(user.id, { onboarded: true })} /> : null}
     </div>
   );
@@ -242,12 +238,6 @@ function DockLink({ to, glyph, label, active }: { to: "/" | "/habits" | "/tasks"
       <span className="dock-label">{label}</span>
     </Link>
   );
-}
-
-function InboxDot() {
-  const user = useUser();
-  const unread = useInbox(user.id).filter((item) => !item.read).length;
-  return unread ? <span className="unread-badge is-small">{unread}</span> : null;
 }
 
 function UnreadDot() {

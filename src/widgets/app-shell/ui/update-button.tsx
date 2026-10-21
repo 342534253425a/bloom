@@ -3,28 +3,21 @@ import { useTranslation } from "react-i18next";
 import { getAppUpdate, installAppUpdate, subscribeAppUpdate } from "@/shared/lib/native";
 
 /**
- * "Update Bloom", like Telegram's button: appears when a new version of the Windows or Android app
- * is out. On wide screens it sits in the sidebar, on phones it floats at the top.
+ * Windows app, like Telegram: once a new version has downloaded by itself, one click restarts Bloom into it.
+ * Nothing shows while there is no update.
  */
-export function UpdateButton({ place }: { place: "side" | "float" }) {
+export function UpdateButton() {
   const { t } = useTranslation();
   const update = useSyncExternalStore(subscribeAppUpdate, getAppUpdate);
-  if (update.state === "none") return null;
-  const ready = update.state === "ready";
+  if (update.state !== "ready") return null;
   return (
-    <button
-      type="button"
-      className={`update-btn is-${place} ${ready ? "is-ready" : "is-loading"}`}
-      disabled={!ready}
-      onClick={installAppUpdate}
-      title={update.version ? `Bloom ${update.version}` : undefined}
-    >
+    <button type="button" className="update-btn is-side is-ready" onClick={installAppUpdate} title={update.version ? `Bloom ${update.version}` : undefined}>
       <span className="update-icon" aria-hidden="true">
-        {ready ? "⬆" : <i style={{ width: `${update.percent}%` }} />}
+        ⬆
       </span>
       <span className="update-copy">
-        <strong>{ready ? t("update.button") : t("update.loading", { percent: update.percent })}</strong>
-        {ready ? <small>{t("update.hint")}</small> : null}
+        <strong>{t("update.button")}</strong>
+        <small>{t("update.hint")}</small>
       </span>
     </button>
   );

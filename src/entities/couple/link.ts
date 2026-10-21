@@ -204,7 +204,6 @@ async function loadProfiles(uid: string, name: string): Promise<{ me: Profile; p
 }
 
 async function loadItems(key: string) {
-  items.clear();
   const { data, error } = await supabase
     .from("couple_items")
     .select("*")
@@ -215,12 +214,15 @@ async function loadItems(key: string) {
     console.warn("Bloom couple load failed", error.message);
     return;
   }
+  items.clear();
   for (const row of (data ?? []) as CoupleItem[]) items.set(row.id, row);
 }
 
 function joinChannel(key: string, uid: string) {
-  channel = supabase.channel(`couple-${key}`, { config: { broadcast: { self: false, ack: false }, presence: { key: uid } } });
-  channel
+  const current = supabase.channel(`couple-${key}`, { config: { broadcast: { self: false, ack: false }, presence: { key: uid } } });
+  channel = current;
+  joinedAt = Date.now();
+  current
     .on("broadcast", { event: "*" }, (message) => emitLocal(String(message.event), (message.payload ?? {}) as Record<string, unknown>))
     .on("presence", { event: "sync" }, readPresence)
     .on("postgres_changes", { event: "*", schema: "public", table: "couple_items", filter: `couple_key=eq.${key}` }, (change) => {
@@ -235,12 +237,65 @@ function joinChannel(key: string, uid: string) {
       bump();
     })
     .subscribe((status) => {
+      if (current !== channel) return;
       set({ connected: status === "SUBSCRIBED" });
       if (status === "SUBSCRIBED") void channel?.track({ ...myPresence });
+      // The line dropped (sleep, VPN or Wi-Fi switch): come back by ourselves instead of staying deaf.
+      else rejoinSoon(3000);
     });
 }
 
+/* ---------- Staying connected ---------- */
+
+let joined: { key: string; uid: string } | null = null;
+let rejoinTimer = 0;
+let rejoining = false;
+let joinedAt = 0;
+
+function rejoinSoon(ms: number) {
+  if (!joined || rejoinTimer) return;
+  rejoinTimer = window.setTimeout(() => {
+    rejoinTimer = 0;
+    void rejoin();
+  }, ms);
+}
+
+async function rejoin() {
+  if (!joined || rejoining || state.connected) return;
+  rejoining = true;
+  const { key, uid } = joined;
+  try {
+    if (channel) {
+      const old = channel;
+      channel = null;
+      void supabase.removeChannel(old);
+    }
+    // Catch up on what arrived while the line was down.
+    await loadItems(key);
+    if (joined?.key === key) {
+      joinChannel(key, uid);
+      bump();
+    }
+  } finally {
+    rejoining = false;
+  }
+}
+
+if (typeof window !== "undefined") {
+  const check = () => {
+    // A slow network may still be joining; give it half a minute before starting over.
+    if (joined && !state.connected && Date.now() - joinedAt > 30_000) rejoinSoon(500);
+  };
+  window.addEventListener("online", check);
+  window.addEventListener("focus", check);
+  document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && check());
+  window.setInterval(check, 20_000);
+}
+
 function leaveChannels() {
+  joined = null;
+  window.clearTimeout(rejoinTimer);
+  rejoinTimer = 0;
   if (channel) void supabase.removeChannel(channel);
   if (profileChannel) void supabase.removeChannel(profileChannel);
   channel = null;
@@ -259,8 +314,10 @@ export async function connectCouple(uid: string, name: string): Promise<void> {
   leaveChannels();
   set({ me: loaded.me, partner: loaded.partner, presence: offline, connected: false });
   if (loaded.me.couple_key && loaded.partner) {
+    items.clear();
     await loadItems(loaded.me.couple_key);
     joinChannel(loaded.me.couple_key, uid);
+    joined = { key: loaded.me.couple_key, uid };
   } else {
     items.clear();
   }
