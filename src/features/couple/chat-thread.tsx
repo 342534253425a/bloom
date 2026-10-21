@@ -477,7 +477,14 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
           />
         </span>
         {text.trim() || editing ? (
-          <button type="button" className="icon-btn is-solid" aria-label={t("couple.love.send")} onClick={() => void send()}>
+          <button
+            type="button"
+            className="icon-btn is-solid"
+            aria-label={t("couple.love.send")}
+            // Keep the focus (and the keyboard) in the text box after sending, like Telegram.
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={() => void send()}
+          >
             <Glyph name={editing ? "check" : "arrowUp"} size={20} stroke={2.6} />
           </button>
         ) : (

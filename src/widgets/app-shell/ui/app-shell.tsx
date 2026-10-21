@@ -25,12 +25,20 @@ import { InstallButton } from "@/widgets/install/install";
 
 type NavItem = { to: string; label: string; art: string; tone: Tone };
 
-const dockTabs: Array<{ to: "/" | "/habits" | "/tasks" | "/spaces"; key: string; glyph: GlyphName }> = [
+type DockTo = "/" | "/together/chat" | "/together" | "/spaces";
+
+/** Phone bottom bar: the partner is one tap away, like a messenger. Habits and tasks live in Spaces. */
+const dockTabs: Array<{ to: DockTo; key: string; glyph: GlyphName }> = [
   { to: "/", key: "today", glyph: "home" },
-  { to: "/habits", key: "habits", glyph: "sprout" },
-  { to: "/tasks", key: "tasks", glyph: "list" },
+  { to: "/together/chat", key: "chat", glyph: "message" },
+  { to: "/together", key: "pair", glyph: "heart" },
   { to: "/spaces", key: "spaces", glyph: "grid" },
 ];
+
+function dockActive(path: string, to: DockTo) {
+  if (to === "/together") return isActive(path, to) && !isActive(path, "/together/chat");
+  return isActive(path, to);
+}
 
 const creates: Array<{ intent: Intent; to: string; key: string; art: string; tone: Tone }> = [
   { intent: "task", to: "/tasks", key: "task", art: "i-list", tone: "sky" },
@@ -150,7 +158,7 @@ export function AppShell() {
 
       <nav className="dock" aria-label="Bloom" data-tour="nav">
         {dockTabs.slice(0, 2).map((tab) => (
-          <DockLink key={tab.to} to={tab.to} glyph={tab.glyph} label={t(`nav.${tab.key}`)} active={isActive(path, tab.to)} />
+          <DockLink key={tab.to} to={tab.to} glyph={tab.glyph} label={t(`nav.${tab.key}`)} active={dockActive(path, tab.to)} />
         ))}
         <button
           data-tour="create"
@@ -171,7 +179,7 @@ export function AppShell() {
             to={tab.to}
             glyph={tab.glyph}
             label={t(`nav.${tab.key}`)}
-            active={isActive(path, tab.to) || (tab.to === "/spaces" && spaces.some((space) => space.to !== "/habits" && space.to !== "/tasks" && isActive(path, space.to)))}
+            active={dockActive(path, tab.to) || (tab.to === "/spaces" && spaces.some((space) => isActive(path, space.to)))}
           />
         ))}
       </nav>
@@ -230,11 +238,12 @@ function SideProfile() {
   );
 }
 
-function DockLink({ to, glyph, label, active }: { to: "/" | "/habits" | "/tasks" | "/spaces"; glyph: GlyphName; label: string; active: boolean }) {
+function DockLink({ to, glyph, label, active }: { to: DockTo; glyph: GlyphName; label: string; active: boolean }) {
   return (
     <Link to={to} className={`dock-link ${active ? "is-active" : ""}`} aria-current={active ? "page" : undefined} onClick={() => haptic(5)}>
       <span className="dock-icon">
         <Glyph name={glyph} size={24} stroke={active ? 2.3 : 1.9} />
+        {to === "/together/chat" ? <UnreadDot /> : null}
       </span>
       <span className="dock-label">{label}</span>
     </Link>

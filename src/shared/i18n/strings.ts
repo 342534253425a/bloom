@@ -211,6 +211,8 @@ export const strings = {
     reflect: ["Reflection", "Рефлексия", "复盘"],
     stats: ["Stats", "Статистика", "统计"],
     together: ["Support", "Поддержка", "陪伴"],
+    chat: ["Chat", "Чат", "聊天"],
+    pair: ["Together", "Вместе", "一起"],
     garden: ["Garden", "Сад", "花园"],
     privacy: ["Privacy", "Приватность", "隐私"],
     settings: ["Settings", "Настройки", "设置"],

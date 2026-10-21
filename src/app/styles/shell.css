@@ -151,3 +151,11 @@
   font-weight: 700;
   color: var(--muted);
 }
+
+/* Unread messages on the bottom bar's chat tab. */
+.dock-icon .unread-badge {
+  position: absolute;
+  top: -4px;
+  right: 2px;
+  z-index: 1;
+}
