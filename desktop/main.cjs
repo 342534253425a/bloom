@@ -272,10 +272,11 @@ function setUnread(count) {
 }
 
 function createTray() {
-  tray = new Tray(icon(32));
+  tray = tray ?? new Tray(icon(32));
   tray.setToolTip("Bloom");
   tray.setContextMenu(
     Menu.buildFromTemplate([
+      ...(update.state === "ready" ? [{ label: "⬆ Обновить Bloom · Update Bloom", click: installUpdate }, { type: "separator" }] : []),
       { label: "Открыть Bloom · Open", click: show },
       { type: "separator" },
       {
@@ -294,8 +295,12 @@ function createTray() {
       },
     ]),
   );
-  tray.on("click", show);
+  if (!createTray.wired) {
+    createTray.wired = true;
+    tray.on("click", show);
+  }
 }
+createTray.refresh = () => tray && createTray();
 
 function setAutostart(on) {
   app.setLoginItemSettings({ openAtLogin: on, args: ["--hidden"] });
@@ -435,16 +440,46 @@ ipcMain.handle("bloom:take-link", (event) => {
 /* ------------------------------------------------------------------ start */
 
 /** New versions of this app come from the project's GitHub releases and install on the next restart. */
+/** Where the update stands, shown in Bloom as an "Update Bloom" button (like Telegram). */
+let update = { state: "none", version: "", percent: 0 };
+let updaterReady = false;
+
+function setUpdate(patch) {
+  update = { ...update, ...patch };
+  win?.webContents.send("bloom:update", update);
+  if (update.state === "ready") createTray.refresh?.();
+}
+
 function checkForUpdates() {
   if (process.defaultApp || process.env.BLOOM_URL) return;
   try {
     const { autoUpdater } = require("electron-updater");
-    autoUpdater.autoInstallOnAppQuit = true;
+    if (!updaterReady) {
+      updaterReady = true;
+      autoUpdater.autoInstallOnAppQuit = true;
+      autoUpdater.on("update-available", (info) => setUpdate({ state: "downloading", version: info.version, percent: 0 }));
+      autoUpdater.on("download-progress", (progress) => setUpdate({ state: "downloading", percent: Math.round(progress.percent) }));
+      autoUpdater.on("update-downloaded", (info) => setUpdate({ state: "ready", version: info.version, percent: 100 }));
+      autoUpdater.on("error", () => update.state === "downloading" && setUpdate({ state: "none" }));
+    }
     void autoUpdater.checkForUpdates().catch(() => undefined);
   } catch {
     /* updater unavailable */
   }
 }
+
+function installUpdate() {
+  if (update.state !== "ready") return;
+  quitting = true;
+  try {
+    require("electron-updater").autoUpdater.quitAndInstall(true, true);
+  } catch {
+    app.quit();
+  }
+}
+
+ipcMain.handle("bloom:update-state", (event) => (fromBloom(event) ? update : null));
+ipcMain.on("bloom:update-install", (event) => fromBloom(event) && installUpdate());
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);

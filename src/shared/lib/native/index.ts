@@ -22,6 +22,9 @@ export const DOWNLOADS = {
 /** A notification as the apps show it; chats carry the latest unread lines and their count. */
 export type AppNote = { title: string; body: string; to: string; tag: string; urgent?: boolean; chat?: boolean; lines?: string[]; count?: number; lang?: string };
 
+/** A newer version of the app itself: downloading (Windows), or ready to install. */
+export type AppUpdate = { state: "none" | "downloading" | "ready"; version: string; percent: number };
+
 /** A screen or window offered for sharing in the Windows app. */
 export type ScreenSource = { id: string; name: string; thumb: string; screen: boolean };
 
@@ -35,6 +38,10 @@ type DesktopBridge = {
   onAction?: (listener: (action: string, payload: unknown) => void) => () => void;
   /** Version "3": calls. */
   callState?: (state: { phase: string; name: string; video: boolean; mic: boolean; cam: boolean; screen: boolean; front: boolean } | null) => void;
+  /** Version "4": "Update Bloom" button. */
+  getUpdate?: () => Promise<AppUpdate | null>;
+  installUpdate?: () => void;
+  onUpdate?: (listener: (state: AppUpdate) => void) => () => void;
   onPickScreen?: (listener: (sources: ScreenSource[]) => Promise<{ id: string; audio: boolean } | null>) => () => void;
   setUnread: (count: number) => void;
   setTitleBar: (colors: { color: string; symbol: string }) => void;
@@ -195,6 +202,8 @@ export async function startShell() {
 
   if (desktop) {
     desktop.onLink((url) => void handleLink(url));
+    desktop.onUpdate?.(setAppUpdate);
+    void desktop.getUpdate?.().then((state) => state && setAppUpdate(state));
     const first = await desktop.takeLink();
     if (first) void handleLink(first);
     // The window buttons sit on the page's own background.
@@ -221,23 +230,46 @@ export async function startShell() {
   const { StatusBar, Style } = await import("@capacitor/status-bar");
   void StatusBar.setStyle({ style: Style.Light }).catch(() => undefined);
   void offerAndroidUpdate(App);
+  window.setInterval(() => void offerAndroidUpdate(App), 6 * 3600_000);
 }
 
-/** The page updates by itself; the app shell only when a newer APK is published. Asks at most once a day. */
+/** The page updates by itself; the Android app shell only when a newer APK is published. */
 async function offerAndroidUpdate(App: typeof import("@capacitor/app").App) {
   try {
-    const key = "bloom.updateAsked";
-    if (Number(localStorage.getItem(key) ?? 0) > Date.now() - 86_400_000) return;
     const [{ build }, release] = await Promise.all([
       App.getInfo(),
       fetch("https://api.github.com/repos/342534253425a/bloom/releases/latest").then((res) => res.json() as Promise<{ tag_name?: string }>),
     ]);
     const latest = Number(release.tag_name?.replace("apps-", "") ?? 0);
-    if (!latest || latest <= Number(build)) return;
-    localStorage.setItem(key, String(Date.now()));
-    const ru = /^ru/.test(navigator.language);
-    if (window.confirm(ru ? "Есть новая версия приложения Bloom. Скачать?" : "A new version of the Bloom app is available. Download it?")) await openOutside(DOWNLOADS.android);
+    if (latest && latest > Number(build)) setAppUpdate({ state: "ready", version: `1.0.${latest}`, percent: 100 });
   } catch {
     /* offline or GitHub unreachable */
   }
 }
+
+/* ------------------------------------------------------------------ app updates */
+
+let appUpdate: AppUpdate = { state: "none", version: "", percent: 0 };
+const updateListeners = new Set<() => void>();
+function setAppUpdate(next: AppUpdate) {
+  appUpdate = next;
+  updateListeners.forEach((listener) => listener());
+}
+
+export function subscribeAppUpdate(listener: () => void) {
+  updateListeners.add(listener);
+  return () => updateListeners.delete(listener);
+}
+
+export function getAppUpdate(): AppUpdate {
+  return appUpdate;
+}
+
+/** Installs the new version: restarts the Windows app, or downloads the new APK on Android. */
+export function installAppUpdate() {
+  if (desktop?.installUpdate) desktop.installUpdate();
+  else if (shell === "android") void openOutside(DOWNLOADS.android);
+}
+
+/** Development only: show the "Update Bloom" button without a real update. */
+if (import.meta.env.DEV) (window as unknown as { __bloomUpdatePreview?: (state: AppUpdate) => void }).__bloomUpdatePreview = setAppUpdate;

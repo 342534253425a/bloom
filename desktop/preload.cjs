@@ -2,11 +2,18 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("bloomDesktop", {
-  version: "3",
+  version: "4",
   openExternal: (url) => ipcRenderer.send("bloom:open-external", String(url)),
   notify: (input) => ipcRenderer.send("bloom:notify", input),
   dismiss: (key) => ipcRenderer.send("bloom:dismiss", String(key)),
   callState: (state) => ipcRenderer.send("bloom:call", state),
+  getUpdate: () => ipcRenderer.invoke("bloom:update-state"),
+  installUpdate: () => ipcRenderer.send("bloom:update-install"),
+  onUpdate: (listener) => {
+    const handler = (_event, state) => listener(state);
+    ipcRenderer.on("bloom:update", handler);
+    return () => ipcRenderer.removeListener("bloom:update", handler);
+  },
   onPickScreen: (listener) => {
     const handler = async (_event, sources) => {
       const choice = await listener(sources).catch(() => null);

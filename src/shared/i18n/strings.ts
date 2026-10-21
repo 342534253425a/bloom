@@ -1197,6 +1197,11 @@ export const strings = {
   notify: notifyStrings,
 
   /* ---------- Install as an app ---------- */
+  update: {
+    button: ["Update Bloom", "Обновить Bloom", "更新 Bloom"],
+    hint: ["A new version is ready", "Новая версия уже готова", "新版本已就绪"],
+    loading: ["Downloading update… {{percent}}%", "Загрузка обновления… {{percent}}%", "正在下载更新… {{percent}}%"],
+  },
   install: {
     title: ["Install Bloom", "Установи Bloom", "安装 Bloom"],
     short: ["Install app", "Установить", "安装应用"],
