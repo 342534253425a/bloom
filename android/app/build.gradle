@@ -9,7 +9,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         // CI passes the run number so every new APK installs over the previous one.
         versionCode (System.getenv("BLOOM_VERSION_CODE") ?: "1").toInteger()
-        versionName System.getenv("BLOOM_VERSION_NAME") ?: "1.0"
+        versionName(System.getenv("BLOOM_VERSION_NAME") ?: "1.0")
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -24,7 +24,7 @@ android {
                 storeFile file(System.getenv("BLOOM_KEYSTORE"))
                 storeType "pkcs12"
                 storePassword System.getenv("BLOOM_KEYSTORE_PASSWORD")
-                keyAlias System.getenv("BLOOM_KEY_ALIAS") ?: "bloom"
+                keyAlias(System.getenv("BLOOM_KEY_ALIAS") ?: "bloom")
                 keyPassword System.getenv("BLOOM_KEYSTORE_PASSWORD")
             }
         }
