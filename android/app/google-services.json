@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "258892212985",
+    "project_id": "bloom-love",
+    "storage_bucket": "bloom-love.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:258892212985:android:a23560e90c0b53a178d028",
+        "android_client_info": {
+          "package_name": "online.bloomlove.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD7J_UgdhggT2QZdYBHEtf4XdXu-V5eye0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

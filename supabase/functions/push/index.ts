@@ -2,6 +2,8 @@
 //  - {type:"vapid"}  → public VAPID key for the app (made on first call).
 //  - {type:"item"}   → partner events from the couple_items trigger (needs x-bloom-hook).
 //  - {type:"tick"}   → scheduled reminders every 5 minutes from pg_cron (needs x-bloom-hook).
+// Browsers and iPhones get Web Push; the Android app gets Firebase (endpoint "fcm:<token>",
+// secret FCM_SERVICE_ACCOUNT = the Firebase service-account JSON).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 import webpush from "npm:web-push@3.6.7";
 
@@ -109,6 +111,67 @@ function say(lang: string, key: string, vars: Record<string, unknown> = {}) {
   return (copy[key]?.[index] ?? key).replace(/\{(\w+)\}/g, (_, name) => String(vars[name] ?? ""));
 }
 
+/* ------------------------------------------------------------------ Firebase (Android app) */
+
+type ServiceAccount = { project_id: string; client_email: string; private_key: string };
+let fcmAuth: { token: string; until: number } | null = null;
+
+function account(): ServiceAccount | null {
+  try {
+    const raw = Deno.env.get("FCM_SERVICE_ACCOUNT");
+    return raw ? (JSON.parse(raw) as ServiceAccount) : null;
+  } catch {
+    return null;
+  }
+}
+
+const b64url = (bytes: Uint8Array | string) =>
+  btoa(typeof bytes === "string" ? bytes : String.fromCharCode(...bytes)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+
+/** A short-lived Google access token for the Firebase send API, signed with the service account. */
+async function fcmAccessToken(sa: ServiceAccount): Promise<string> {
+  if (fcmAuth && fcmAuth.until > Date.now() + 60_000) return fcmAuth.token;
+  const now = Math.floor(Date.now() / 1000);
+  const head = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const claims = b64url(JSON.stringify({ iss: sa.client_email, scope: "https://www.googleapis.com/auth/firebase.messaging", aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 }));
+  const pem = sa.private_key.replace(/-----[^-]+-----/g, "").replace(/\s+/g, "");
+  const der = Uint8Array.from(atob(pem), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const signature = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(`${head}.${claims}`)));
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${head}.${claims}.${b64url(signature)}` }),
+  });
+  const json = await res.json();
+  if (!json.access_token) throw new Error(`google auth: ${JSON.stringify(json).slice(0, 200)}`);
+  fcmAuth = { token: json.access_token, until: Date.now() + (json.expires_in ?? 3600) * 1000 };
+  return fcmAuth.token;
+}
+
+/** Sends one notification to an Android phone. Returns the HTTP status and Firebase's error, if any. */
+async function sendFcm(token: string, msg: Msg): Promise<{ status: number; error: string | null }> {
+  const sa = account();
+  if (!sa) return { status: 0, error: "FCM_SERVICE_ACCOUNT is not set" };
+  const res = await fetch(`https://fcm.googleapis.com/v1/projects/${sa.project_id}/messages:send`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${await fcmAccessToken(sa)}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        token,
+        notification: { title: msg.title, body: msg.body },
+        data: { url: msg.url, tag: msg.tag },
+        android: {
+          priority: "high",
+          ttl: "21600s",
+          notification: { channel_id: "bloom", icon: "ic_stat_bloom", color: "#36c89c", tag: msg.tag, default_sound: true, default_vibrate_timings: true },
+        },
+      },
+    }),
+  });
+  return { status: res.status, error: res.ok ? null : (await res.text()).slice(0, 300) };
+}
+
 /* ------------------------------------------------------------------ sending */
 
 async function claim(userId: string, key: string): Promise<boolean> {
@@ -120,6 +183,13 @@ async function deliver(subs: Sub[], msg: Msg) {
   await getConfig();
   await Promise.all(
     subs.map(async (s) => {
+      if (s.endpoint.startsWith("fcm:")) {
+        const { status, error } = await sendFcm(s.endpoint.slice(4), msg).catch((e) => ({ status: 0, error: String((e as Error).message ?? e) }));
+        await db.from("push_log").insert({ user_id: s.user_id, host: "fcm", tag: msg.tag, status, error });
+        // The app was removed or its token replaced.
+        if (status === 404 || (status === 400 && /UNREGISTERED|registration-token-not-registered/.test(error ?? ""))) await db.from("push_subscriptions").delete().eq("endpoint", s.endpoint);
+        return;
+      }
       const host = s.endpoint.split("/")[2] ?? "?";
       try {
         // "high" makes phones wake up for it even in battery-saving mode.
@@ -278,7 +348,11 @@ async function tick() {
   const { data } = await db.from("push_subscriptions").select("*");
   const byUser = new Map<string, Sub[]>();
   for (const s of (data ?? []) as Sub[]) byUser.set(s.user_id, [...(byUser.get(s.user_id) ?? []), s]);
-  for (const [userId, subs] of byUser) await tickUser(userId, subs).catch((e) => console.warn("tick", userId, e));
+  for (const [userId, all] of byUser) {
+    // The Android app schedules its own reminders on the phone; only browsers and iPhones need them from here.
+    const subs = all.filter((s) => !s.endpoint.startsWith("fcm:"));
+    if (subs.length) await tickUser(userId, subs).catch((e) => console.warn("tick", userId, e));
+  }
 }
 
 /* ------------------------------------------------------------------ partner events */

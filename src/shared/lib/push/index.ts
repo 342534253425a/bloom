@@ -1,5 +1,5 @@
 import { supabase } from "@/shared/api/supabase";
-import { isApp } from "@/shared/lib/native";
+import { isApp, requestOpen, shell } from "@/shared/lib/native";
 
 /** Web Push: lets the server reach this device when Bloom is closed (supabase/functions/push). */
 
@@ -115,8 +115,68 @@ export async function disablePush() {
   await sub.unsubscribe();
 }
 
+/* ------------------------------------------------------------------ Android app: Firebase */
+
+let fcmToken: string | null = null;
+let fcmStarted = false;
+
+async function saveFcm(token: string, snapshot: PushSnapshot) {
+  const { error } = await supabase.rpc("claim_push_subscription", {
+    p_endpoint: `fcm:${token}`,
+    p_sub: { fcm: token },
+    p_tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    p_lang: snapshot.lang,
+    p_prefs: snapshot,
+  });
+  if (error) throw error;
+}
+
+/**
+ * Android app: registers with Firebase so the server can reach the phone when Bloom is closed
+ * (partner messages, surprises…). Reminders are scheduled on the phone itself (android-plan.ts).
+ * Resolves true once the server has this phone's token.
+ */
+export function enableAndroidPush(snapshot: PushSnapshot): Promise<boolean> {
+  if (shell !== "android") return Promise.resolve(false);
+  return (async () => {
+    const { PushNotifications } = await import("@capacitor/push-notifications");
+    if (!fcmStarted) {
+      fcmStarted = true;
+      void PushNotifications.addListener("pushNotificationActionPerformed", ({ notification }) => {
+        const url = (notification.data as { url?: string } | undefined)?.url;
+        if (url) requestOpen(url);
+      });
+    }
+    const permission = await PushNotifications.checkPermissions();
+    const granted = permission.receive === "granted" || (await PushNotifications.requestPermissions()).receive === "granted";
+    if (!granted) return false;
+    const token = await new Promise<string>((resolve, reject) => {
+      void PushNotifications.addListener("registration", ({ value }) => resolve(value));
+      void PushNotifications.addListener("registrationError", ({ error }) => reject(new Error(error)));
+      void PushNotifications.register();
+      setTimeout(() => reject(new Error("Firebase did not answer")), 20_000);
+    });
+    fcmToken = token;
+    await saveFcm(token, snapshot);
+    lastPushError = "";
+    return true;
+  })().catch((error) => {
+    lastPushError = error instanceof Error ? error.message : String(error);
+    console.warn("Bloom Android push", error);
+    return false;
+  });
+}
+
 /** Keeps the server's copy of the notification settings current. */
 export async function syncPushPrefs(snapshot: PushSnapshot) {
+  if (fcmToken) {
+    try {
+      await saveFcm(fcmToken, snapshot);
+      return true;
+    } catch {
+      return false;
+    }
+  }
   const sub = await currentSubscription();
   if (!sub) return false;
   try {

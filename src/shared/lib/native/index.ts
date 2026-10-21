@@ -50,7 +50,7 @@ export function onOpenRequest(listener: (to: string) => void): () => void {
   return () => openListeners.delete(listener);
 }
 
-function requestOpen(to: string) {
+export function requestOpen(to: string) {
   if (!to.startsWith("/")) return;
   if (!openListeners.size) pendingOpen = to;
   for (const listener of openListeners) listener(to);

@@ -6,7 +6,7 @@ import type { CardData, RatingData, RecordingData } from "@/entities/couple/phra
 import { readBoard } from "@/entities/habit";
 import { alreadySent, dismissBanner, kindOn, kindTime, markSent, notify, pushSnapshot, setPushActive, useBanner } from "@/entities/notify";
 import { currentLang } from "@/shared/i18n";
-import { ensurePush, markServerSent, syncPushPrefs } from "@/shared/lib/push";
+import { enableAndroidPush, ensurePush, markServerSent, syncPushPrefs } from "@/shared/lib/push";
 import { getPrefs, usePrefs, type Prefs } from "@/entities/prefs";
 import { useProgress } from "@/entities/progress";
 import { useUser } from "@/entities/session";
@@ -322,7 +322,10 @@ export function NotifyHost() {
     const plan = () => void getPrefs(user.id).then((current) => planAndroidReminders(user.id, current, t));
     if (!asked.current) {
       asked.current = true;
-      void askAndroidNotifications().then(plan);
+      void askAndroidNotifications()
+        .then(plan)
+        .then(() => enableAndroidPush(pushSnapshot(prefs, currentLang())))
+        .then(setPushActive);
     }
     const timer = window.setTimeout(plan, 1500);
     const every = window.setInterval(plan, 15 * 60_000);

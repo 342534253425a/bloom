@@ -28,6 +28,11 @@
             </intent-filter>
         </activity>
 
+        <!-- Pushes from Firebase (partner messages while Bloom is closed) use Bloom's icon and channel. -->
+        <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_bloom" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/bloom_mint" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="bloom" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
