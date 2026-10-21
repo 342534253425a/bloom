@@ -23,7 +23,10 @@ export const DOWNLOADS = {
 export type AppNote = { title: string; body: string; to: string; tag: string; urgent?: boolean; chat?: boolean; lines?: string[]; count?: number; lang?: string };
 
 /** A newer version of the app itself: downloading (Windows), or ready to install. */
-export type AppUpdate = { state: "none" | "downloading" | "ready"; version: string; percent: number };
+export type ShellUpdate = { state: "none" | "downloading" | "ready"; version: string; percent: number };
+
+/** Everything "Update Bloom" knows: the app itself, and whether a newer site was published (`site`). */
+export type AppUpdate = ShellUpdate & { site: boolean };
 
 /** A screen or window offered for sharing in the Windows app. */
 export type ScreenSource = { id: string; name: string; thumb: string; screen: boolean };
@@ -42,9 +45,9 @@ type DesktopBridge = {
   /** Version "3": calls. */
   callState?: (state: { phase: string; name: string; video: boolean; mic: boolean; cam: boolean; screen: boolean; front: boolean } | null) => void;
   /** Version "4": "Update Bloom" button. */
-  getUpdate?: () => Promise<AppUpdate | null>;
+  getUpdate?: () => Promise<ShellUpdate | null>;
   installUpdate?: () => void;
-  onUpdate?: (listener: (state: AppUpdate) => void) => () => void;
+  onUpdate?: (listener: (state: ShellUpdate) => void) => () => void;
   onPickScreen?: (listener: (sources: ScreenSource[]) => Promise<{ id: string; audio: boolean | ScreenSound } | null>) => () => void;
   /** Version "5": computer sound without Bloom's own, and switching the sound while sharing. */
   setScreenSound?: (sound: ScreenSound) => Promise<boolean>;
@@ -271,21 +274,88 @@ function skipped() {
   }
 }
 
-/** "Not now" on the phone: hides the button until the next version comes out. */
+/** "Not now": hides the button until the next version comes out. */
 export function skipAppUpdate() {
   try {
-    localStorage.setItem("bloom.update.skip", appUpdate.version);
+    if (appUpdate.state === "ready") localStorage.setItem("bloom.update.skip", appUpdate.version);
+    if (appUpdate.site && siteBuild) localStorage.setItem("bloom.update.skipSite", siteBuild);
   } catch {
     /* storage may be unavailable */
   }
-  setAppUpdate({ state: "none", version: "", percent: 0 });
+  setAppUpdate({ state: "none", version: "", percent: 0, site: false });
 }
 
-let appUpdate: AppUpdate = { state: "none", version: "", percent: 0 };
+let appUpdate: AppUpdate = { state: "none", version: "", percent: 0, site: false };
 const updateListeners = new Set<() => void>();
-function setAppUpdate(next: AppUpdate) {
-  appUpdate = next;
+function setAppUpdate(next: ShellUpdate & { site?: boolean }) {
+  appUpdate = { ...next, site: next.site ?? appUpdate.site };
   updateListeners.forEach((listener) => listener());
+}
+
+/* ------------------------------------------------------------------ the site itself (every deploy) */
+
+/** The newest site build seen on the server, for "not now". */
+let siteBuild = "";
+
+/**
+ * Like Telegram, the running app notices a new version by itself: every few minutes and whenever Bloom comes back
+ * to the front it compares its build with /version.json, starts fetching the new files, and shows "Update Bloom".
+ */
+export function watchSiteUpdates() {
+  if (import.meta.env.DEV || typeof window === "undefined") return;
+  let last = 0;
+  const check = async () => {
+    if (Date.now() - last < 60_000) return;
+    last = Date.now();
+    try {
+      const res = await fetch(`/version.json?t=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const { build } = (await res.json()) as { build?: string };
+      if (!build || build === __BLOOM_BUILD__) return;
+      siteBuild = build;
+      // The new files download in the background, so the button then reloads straight into them.
+      void navigator.serviceWorker
+        ?.getRegistration()
+        .then((registration) => registration?.update())
+        .catch(() => undefined);
+      if (!appUpdate.site && skippedSite() !== build) setAppUpdate({ ...appUpdate, site: true });
+    } catch {
+      /* offline */
+    }
+  };
+  void check();
+  window.setInterval(() => void check(), 5 * 60_000);
+  window.addEventListener("focus", () => void check());
+  window.addEventListener("online", () => void check());
+  document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && void check());
+}
+
+function skippedSite() {
+  try {
+    return localStorage.getItem("bloom.update.skipSite");
+  } catch {
+    return null;
+  }
+}
+
+/** Waits (briefly) until the new files are in place, then reloads into the new version. */
+async function reloadIntoNewSite() {
+  const registration = await navigator.serviceWorker?.getRegistration().catch(() => undefined);
+  if (registration) {
+    await registration.update().catch(() => undefined);
+    const worker = registration.installing ?? registration.waiting;
+    if (worker)
+      await new Promise<void>((resolve) => {
+        const timer = window.setTimeout(resolve, 15_000);
+        worker.addEventListener("statechange", () => {
+          if (worker.state === "activated" || worker.state === "redundant") {
+            window.clearTimeout(timer);
+            resolve();
+          }
+        });
+      });
+  }
+  window.location.reload();
 }
 
 export function subscribeAppUpdate(listener: () => void) {
@@ -297,10 +367,14 @@ export function getAppUpdate(): AppUpdate {
   return appUpdate;
 }
 
-/** Installs the new version: restarts the Windows app; on Android downloads the APK inside Bloom and opens Android's "Update" prompt. */
+/**
+ * Installs the new version: restarts the Windows app into its new version; on Android downloads the APK inside Bloom
+ * and opens Android's "Update" prompt; a new site alone just reloads Bloom into it.
+ */
 export function installAppUpdate() {
-  if (desktop?.installUpdate) desktop.installUpdate();
-  else if (shell === "android") void installAndroidUpdate();
+  if (appUpdate.state === "ready" && desktop?.installUpdate) desktop.installUpdate();
+  else if (appUpdate.state === "ready" && shell === "android") void installAndroidUpdate();
+  else if (appUpdate.site) void reloadIntoNewSite();
 }
 
 type BloomUpdate = {
@@ -328,6 +402,9 @@ async function installAndroidUpdate() {
     setAppUpdate(ready);
   }
 }
+
+/** For checking from the console what "Update Bloom" knows (read-only). */
+(window as unknown as { __bloomUpdateState?: () => AppUpdate }).__bloomUpdateState = () => appUpdate;
 
 /** Development only: show the "Update Bloom" button without a real update. */
 if (import.meta.env.DEV) (window as unknown as { __bloomUpdatePreview?: (state: AppUpdate) => void }).__bloomUpdatePreview = setAppUpdate;

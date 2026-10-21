@@ -101,7 +101,11 @@ function createWindow() {
       showNote({ key: "tray", title: "Bloom", body: "Bloom остаётся в трее и пришлёт уведомления · Bloom keeps running in the tray", to: "/", lang: "ru", silent: true });
     }
   });
-  win.on("focus", () => win.flashFrame(false));
+  win.on("focus", () => {
+    win.flashFrame(false);
+    // Coming back to Bloom is a good moment to look for a new version (at most every few minutes).
+    checkForUpdates();
+  });
   // Hiding Bloom during a video call keeps the partner in a small floating picture.
   const keepPicture = () => {
     if (lastCall?.phase === "active") void win.webContents.executeJavaScript("window.__bloomCallPip && window.__bloomCallPip()", true).catch(() => undefined);
@@ -491,8 +495,13 @@ function setUpdate(patch) {
   if (update.state === "ready") createTray.refresh?.();
 }
 
+let lastCheck = 0;
+
 function checkForUpdates() {
   if (process.defaultApp || process.env.BLOOM_URL) return;
+  // Downloading or ready: nothing more to look for.
+  if (update.state !== "none" || Date.now() - lastCheck < 5 * 60_000) return;
+  lastCheck = Date.now();
   try {
     const { autoUpdater } = require("electron-updater");
     if (!updaterReady) {
@@ -525,7 +534,8 @@ ipcMain.on("bloom:update-install", (event) => fromBloom(event) && installUpdate(
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   checkForUpdates();
-  setInterval(checkForUpdates, 6 * 3600_000);
+  // Like Telegram: a new version is noticed soon, not hours later.
+  setInterval(checkForUpdates, 30 * 60_000);
 
   // Calls and the cinema: pick a screen or window (with the computer's sound if wanted), like Telegram.
   session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => void pickScreen(callback).catch(() => callback({})), { useSystemPicker: false });

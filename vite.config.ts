@@ -6,7 +6,13 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { verificationPlugin } from "./src/server/plugin";
 
+/** Every build gets its own number; the running app compares it with /version.json to offer "Update Bloom" right away. */
+const BUILD = Date.now().toString(36);
+
 export default defineConfig({
+  define: {
+    __BLOOM_BUILD__: JSON.stringify(BUILD),
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
@@ -14,6 +20,12 @@ export default defineConfig({
   },
   plugins: [
     verificationPlugin(),
+    {
+      name: "bloom-version",
+      generateBundle() {
+        this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ build: BUILD }) });
+      },
+    },
     react(),
     tailwindcss(),
     VitePWA({

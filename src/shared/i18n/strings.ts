@@ -1206,6 +1206,7 @@ export const strings = {
     button: ["Update Bloom", "Обновить Bloom", "更新 Bloom"],
     hint: ["Restart to the new version", "Перезапустить в новую версию", "重启即可使用新版本"],
     hintApk: ["Tap to install the new version", "Нажми — новая версия установится", "点击安装新版本"],
+    hintSite: ["A new version is out — tap to update", "Вышла новая версия — нажми, чтобы обновить", "新版本已发布——点击更新"],
     loading: ["Downloading… {{percent}}%", "Загрузка… {{percent}}%", "正在下载… {{percent}}%"],
   },
   install: {
