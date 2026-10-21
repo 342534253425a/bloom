@@ -377,8 +377,33 @@ ipcMain.on("bloom:call", (event, call) => {
 /* ------------------------------------------------------------------ choosing a screen to share */
 
 let pickerReady = false;
-/** @type {((choice: { id: string; audio: boolean } | null) => void) | null} */
+/** @type {((choice: { id: string; sound: Sound } | null) => void) | null} */
 let pickerReply = null;
+/** @typedef {{ pc: boolean; bloom: boolean }} Sound */
+/** The screen being shared, so its sound can be switched without asking again. */
+let lastSourceId = "";
+/** @type {Sound | null} A sound change asked by Bloom: the next request reuses the same screen. */
+let pendingSound = null;
+
+/** Older pages answer audio: true; newer ones say which sounds to send. Bloom's own sound is left out unless asked. */
+function soundOf(audio) {
+  if (audio && typeof audio === "object") return { pc: Boolean(audio.pc), bloom: Boolean(audio.bloom) };
+  return { pc: Boolean(audio), bloom: false };
+}
+
+/** System sound without Bloom (no echo of the partner's voice), all of it, or only Bloom's own. */
+function audioFor(sound) {
+  if (sound.pc && sound.bloom) return { audio: "loopback" };
+  if (sound.pc) return { audio: "loopbackWithoutChrome" };
+  if (sound.bloom && win) return { audio: win.webContents.mainFrame };
+  return {};
+}
+
+ipcMain.handle("bloom:screen-sound", (event, sound) => {
+  if (!fromBloom(event) || !lastSourceId) return false;
+  pendingSound = soundOf(sound);
+  return true;
+});
 ipcMain.on("bloom:picker-ready", (event) => {
   if (fromBloom(event)) pickerReady = true;
 });
@@ -386,16 +411,23 @@ ipcMain.on("bloom:screen-picked", (event, choice) => {
   if (!fromBloom(event) || !pickerReply) return;
   const reply = pickerReply;
   pickerReply = null;
-  reply(choice && typeof choice.id === "string" ? { id: choice.id, audio: Boolean(choice.audio) } : null);
+  reply(choice && typeof choice.id === "string" ? { id: choice.id, sound: soundOf(choice.audio) } : null);
 });
 
 async function pickScreen(callback) {
   const sources = await desktopCapturer.getSources({ types: ["screen", "window"], thumbnailSize: { width: 400, height: 225 } });
   const own = new Set(BrowserWindow.getAllWindows().map((item) => item.getMediaSourceId()));
   const offered = sources.filter((source) => !own.has(source.id) && source.name);
+  if (pendingSound) {
+    const sound = pendingSound;
+    pendingSound = null;
+    const same = offered.find((source) => source.id === lastSourceId);
+    if (same) return callback({ video: same, ...audioFor(sound) });
+  }
   if (!pickerReady || !win) {
     const first = offered.find((source) => source.id.startsWith("screen"));
-    return callback(first ? { video: first, audio: "loopback" } : {});
+    if (first) lastSourceId = first.id;
+    return callback(first ? { video: first, audio: "loopbackWithoutChrome" } : {});
   }
   show();
   pickerReply?.(null);
@@ -407,7 +439,8 @@ async function pickScreen(callback) {
     );
   });
   const source = choice && offered.find((item) => item.id === choice.id);
-  callback(source ? { video: source, ...(choice.audio ? { audio: "loopback" } : {}) } : {});
+  if (source) lastSourceId = source.id;
+  callback(source ? { video: source, ...audioFor(choice.sound) } : {});
 }
 
 ipcMain.on("bloom:dismiss", (event, key) => {

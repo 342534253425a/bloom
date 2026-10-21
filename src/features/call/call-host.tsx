@@ -10,6 +10,7 @@ import {
   hangUp,
   listenForCalls,
   setMinimized,
+  setScreenSound,
   startCall,
   toggleCamera,
   toggleMic,
@@ -23,6 +24,7 @@ import { desktop, inFront, onNoteAction } from "@/shared/lib/native";
 import { canShareScreenInCall, listDevices, type Devices } from "@/shared/lib/webrtc/call";
 import { Art, toast } from "@/shared/ui/kit";
 import { ScreenPicker } from "./screen-picker";
+import { ScreenSoundSwitches } from "./screen-sound-switches";
 import { ringback, ringtone, stopTones } from "./tones";
 
 /* ------------------------------------------------------------------ icons */
@@ -195,6 +197,13 @@ export function CallHost() {
 
 type T = (key: string, options?: Record<string, unknown>) => string;
 
+/** What the partner sends: their shared screen, their camera, or both (then the screen is the big picture). */
+function remotePictures(call: CallState) {
+  const screen = call.media && call.remote.screen && call.media.screen.getVideoTracks().length ? call.media.screen : null;
+  const camera = call.media && call.remote.cam && call.media.video.getVideoTracks().length ? call.media.video : null;
+  return { main: screen ?? camera, side: screen ? camera : null };
+}
+
 function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: string; sink: string; onSink: (id: string) => void; t: T }) {
   const [swapped, setSwapped] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
@@ -203,7 +212,8 @@ function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: st
   const stage = useRef<HTMLDivElement>(null);
   useTicker(call.phase === "active");
 
-  const remoteHasVideo = Boolean(call.media && call.media.video.getVideoTracks().length && (call.remote.cam || call.remote.screen));
+  const pictures = remotePictures(call);
+  const remoteHasVideo = Boolean(pictures.main);
   const localHasVideo = call.cam || call.screen;
   const talking = call.phase === "active" || call.phase === "connecting";
   const mobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
@@ -227,11 +237,16 @@ function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: st
       <div className="call-stage" ref={stage}>
         {remoteHasVideo && !swapped ? (
           <div className="call-remote" onDoubleClick={() => void stage.current?.requestFullscreen?.()}>
-            <Video stream={call.media!.video} />
+            <Video stream={pictures.main} className={pictures.side ? "is-screen" : ""} />
+            {pictures.side ? (
+              <div className="call-streamer">
+                <Video stream={pictures.side} />
+              </div>
+            ) : null}
           </div>
         ) : localHasVideo && (swapped || call.phase === "outgoing") && call.local ? (
           <div className="call-remote">
-            <Video stream={call.local} mirror={!call.screen} />
+            <Video stream={call.local} mirror={call.cam} />
           </div>
         ) : (
           <div className="call-avatar">
@@ -277,10 +292,15 @@ function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: st
 
         {localHasVideo && call.local && talking && remoteHasVideo ? (
           <SelfView onSwap={() => setSwapped(!swapped)}>
-            {swapped ? <Video stream={call.media!.video} /> : <Video stream={call.local} mirror={!call.screen} />}
+            {swapped ? <Video stream={pictures.main} /> : <Video stream={call.local} mirror={call.cam} />}
           </SelfView>
         ) : null}
-        {call.screen ? <p className="call-sharing">🖥 {t("call.sharing")}</p> : null}
+        {call.screen ? (
+          <div className="call-sharing">
+            <p>🖥 {t("call.sharing")}</p>
+            {call.screenSound ? <ScreenSoundSwitches compact value={call.screenSound} onChange={(sound) => void setScreenSound(sound)} /> : null}
+          </div>
+        ) : null}
         {call.phase === "active" ? <QualityProbe onQuality={setQuality} /> : null}
       </div>
 
@@ -384,11 +404,11 @@ function DevicePicker({ sink, onSink, onClose, t }: { sink: string; onSink: (id:
 function MiniCall({ call, name }: { call: CallState; name: string }) {
   const { t } = useTranslation();
   useTicker(call.phase === "active");
-  const remoteHasVideo = Boolean(call.media && call.media.video.getVideoTracks().length && (call.remote.cam || call.remote.screen));
+  const picture = remotePictures(call).main;
   return (
     <div className="call-mini" role="status">
       <button type="button" className="call-mini-body" onClick={() => setMinimized(false)} aria-label={t("call.expand")}>
-        {remoteHasVideo ? <Video stream={call.media!.video} /> : <Art name="c-two-wink" />}
+        {picture ? <Video stream={picture} /> : <Art name="c-two-wink" />}
         <span>
           <strong>{name}</strong>
           <small>{call.phase === "active" ? clock((Date.now() - (call.answeredAt ?? Date.now())) / 1000) : t("call.calling")}</small>

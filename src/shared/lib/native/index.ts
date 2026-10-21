@@ -28,6 +28,9 @@ export type AppUpdate = { state: "none" | "downloading" | "ready"; version: stri
 /** A screen or window offered for sharing in the Windows app. */
 export type ScreenSource = { id: string; name: string; thumb: string; screen: boolean };
 
+/** Which sounds go along with a shared screen: the computer's (without Bloom) and Bloom's own (the partner's voice, the cinema). */
+export type ScreenSound = { pc: boolean; bloom: boolean };
+
 /** What the Windows app's preload script (desktop/preload.cjs) exposes. */
 type DesktopBridge = {
   version: string;
@@ -42,7 +45,9 @@ type DesktopBridge = {
   getUpdate?: () => Promise<AppUpdate | null>;
   installUpdate?: () => void;
   onUpdate?: (listener: (state: AppUpdate) => void) => () => void;
-  onPickScreen?: (listener: (sources: ScreenSource[]) => Promise<{ id: string; audio: boolean } | null>) => () => void;
+  onPickScreen?: (listener: (sources: ScreenSource[]) => Promise<{ id: string; audio: boolean | ScreenSound } | null>) => () => void;
+  /** Version "5": computer sound without Bloom's own, and switching the sound while sharing. */
+  setScreenSound?: (sound: ScreenSound) => Promise<boolean>;
   setUnread: (count: number) => void;
   setTitleBar: (colors: { color: string; symbol: string }) => void;
   getAutostart: () => Promise<boolean>;

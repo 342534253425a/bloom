@@ -18,6 +18,9 @@ import {
   type RtcSignal,
 } from "@/shared/lib/webrtc/share";
 import { runNetworkCheck, type CheckResult } from "@/shared/lib/webrtc/check";
+import { captureScreenSound, canSwitchScreenSound, lastScreenSound } from "@/shared/lib/webrtc/screen-sound";
+import { ScreenSoundSwitches } from "@/features/call/screen-sound-switches";
+import type { ScreenSound } from "@/shared/lib/native";
 import { Glyph } from "@/shared/ui/glyph";
 import { Art, toast } from "@/shared/ui/kit";
 
@@ -50,6 +53,7 @@ export function WatchPage() {
   const [needsTap, setNeedsTap] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [noAudio, setNoAudio] = useState(false);
+  const [sound, setSound] = useState<ScreenSound | null>(null);
   const [connectedAt, setConnectedAt] = useState<number | null>(null);
   const [, setTick] = useState(0);
   const [syncFile, setSyncFile] = useState<string | null>(null);
@@ -166,6 +170,7 @@ export function WatchPage() {
     try {
       const captured = await captureScreen(quality);
       setNoAudio(captured.getAudioTracks().length === 0);
+      setSound(canSwitchScreenSound() ? (captured.getAudioTracks().length ? lastScreenSound() : { pc: false, bloom: false }) : null);
       captured.getVideoTracks()[0]?.addEventListener("ended", () => stopHosting());
       const host = new ShareHost(send, servers, setLinkState);
       hostRef.current = host;
@@ -177,6 +182,22 @@ export function WatchPage() {
     } catch {
       /* the person closed the picker */
     }
+  }
+
+  /** Windows app: switch the computer's / Bloom's sound while showing the screen. */
+  async function changeSound(next: ScreenSound) {
+    const current = stream;
+    const video = current?.getVideoTracks()[0];
+    if (!current || !video || role !== "host-screen") return;
+    setSound(next);
+    // Windows won't open a new sound capture while the old one runs, so the old one stops first.
+    for (const old of current.getAudioTracks()) old.stop();
+    const audio = await captureScreenSound(next).catch(() => null);
+    if ((next.pc || next.bloom) && !audio) setSound({ pc: false, bloom: false });
+    const updated = new MediaStream([video, ...(audio ? [audio] : [])]);
+    setStream(updated);
+    setNoAudio(!audio);
+    await hostRef.current?.replace(updated);
   }
 
   /* ---------- Host: file ---------- */
@@ -543,7 +564,8 @@ export function WatchPage() {
             </div>
           ) : null}
 
-          {noAudio && role === "host-screen" ? <p className="cine-warn">🔇 {t("couple.watch.noAudio")}</p> : null}
+          {role === "host-screen" && sound ? <ScreenSoundSwitches compact value={sound} onChange={(next) => void changeSound(next)} /> : null}
+          {noAudio && role === "host-screen" && !sound ? <p className="cine-warn">🔇 {t("couple.watch.noAudio")}</p> : null}
           {role === "viewer" && linkState === "failed" ? <p className="cine-warn">{t("couple.watch.failed")}</p> : null}
           {role === "sync" && syncFile ? <p className="cine-note">🎞 {syncFile}</p> : null}
 

@@ -196,12 +196,26 @@
   left: 50%;
   bottom: 16px;
   transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - 32px);
+}
+.call-sharing p {
   margin: 0;
   padding: 7px 14px;
   border-radius: 999px;
   background: rgba(92, 207, 160, 0.9);
   font-size: 13px;
   font-weight: 800;
+}
+.call-sharing .screen-sound {
+  min-width: 260px;
+  padding: 6px;
+  border-radius: 18px;
+  background: rgba(20, 16, 34, 0.6);
+  backdrop-filter: blur(10px);
 }
 
 .call-controls {
@@ -508,4 +522,64 @@
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+/* ---------- Shared screen sound: computer / Bloom ---------- */
+.screen-sound {
+  display: grid;
+  gap: 6px;
+}
+.screen-sound-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: var(--surface-2, rgba(0, 0, 0, 0.04));
+  cursor: pointer;
+}
+.screen-sound-icon {
+  font-size: 18px;
+}
+.screen-sound-copy {
+  flex: 1;
+  display: grid;
+  min-width: 0;
+}
+.screen-sound-copy strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+.screen-sound-copy small {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.screen-sound.is-compact .screen-sound-row {
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.screen-pick-note {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* The partner's camera over their shared screen, like a streamer's face cam. */
+.call-streamer {
+  position: absolute;
+  z-index: 1;
+  left: 16px;
+  bottom: 16px;
+  width: clamp(120px, 22%, 260px);
+  aspect-ratio: 4 / 3;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  border: 2px solid rgba(255, 255, 255, 0.5);
+}
+.call-remote .call-streamer video {
+  object-fit: cover;
 }

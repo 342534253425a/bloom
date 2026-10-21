@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getCall } from "@/entities/call";
-import { desktop, type ScreenSource } from "@/shared/lib/native";
+import { desktop, type ScreenSound, type ScreenSource } from "@/shared/lib/native";
+import { canSwitchScreenSound, lastScreenSound, rememberScreenSound } from "@/shared/lib/webrtc/screen-sound";
+import { ScreenSoundSwitches } from "./screen-sound-switches";
 
-type Pending = { sources: ScreenSource[]; resolve: (choice: { id: string; audio: boolean } | null) => void };
+type Pending = { sources: ScreenSource[]; resolve: (choice: { id: string; audio: boolean | ScreenSound } | null) => void };
 
 /**
  * Windows app: choosing which screen or window to show (in a call or the cinema), like Telegram.
@@ -14,6 +16,8 @@ export function ScreenPicker() {
   const [pending, setPending] = useState<Pending | null>(null);
   const [tab, setTab] = useState<"screen" | "window">("screen");
   const [audio, setAudio] = useState(true);
+  const [sound, setSound] = useState<ScreenSound>(lastScreenSound);
+  const switchable = canSwitchScreenSound();
   const [picked, setPicked] = useState<string | null>(null);
 
   useEffect(
@@ -22,8 +26,9 @@ export function ScreenPicker() {
         (sources) =>
           new Promise((resolve) => {
             setTab("screen");
-            // In a call the computer's sound would also carry the partner's own voice back to them.
+            // Older Windows app: the computer's sound would carry the partner's own voice back to them in a call.
             setAudio(getCall().phase === "idle");
+            setSound(lastScreenSound());
             setPicked(sources.find((source) => source.screen)?.id ?? sources[0]?.id ?? null);
             setPending({ sources, resolve });
           }),
@@ -32,7 +37,10 @@ export function ScreenPicker() {
   );
 
   if (!pending) return null;
-  const close = (choice: { id: string; audio: boolean } | null) => {
+  const close = (picked: { id: string; audio: boolean } | null) => {
+    // The newer app leaves Bloom's own sound out of the computer's sound, so there is no echo.
+    if (picked && switchable) rememberScreenSound(sound);
+    const choice = picked && switchable ? { id: picked.id, audio: sound } : picked;
     pending.resolve(choice);
     setPending(null);
   };
@@ -57,10 +65,15 @@ export function ScreenPicker() {
             </button>
           ))}
         </div>
-        <label className="screen-pick-audio">
-          <input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} />
-          {t("call.withSound")}
-        </label>
+        {switchable ? (
+          <ScreenSoundSwitches value={sound} onChange={setSound} />
+        ) : (
+          <label className="screen-pick-audio">
+            <input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} />
+            {t("call.withSound")}
+          </label>
+        )}
+        {getCall().phase !== "idle" ? <p className="screen-pick-note">📷 {t("call.camAndScreen")}</p> : null}
         <div className="screen-pick-actions">
           <button type="button" className="btn is-ghost" onClick={() => close(null)}>
             {t("call.cancel")}

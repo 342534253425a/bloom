@@ -44,6 +44,11 @@ export const callStrings = {
   pickScreens: ["Screens", "Экраны", "屏幕"],
   pickWindows: ["Windows", "Окна", "窗口"],
   withSound: ["With computer sound", "Со звуком компьютера", "包含电脑声音"],
+  soundPc: ["Computer sound", "Звук компьютера", "电脑声音"],
+  soundPcHint: ["Videos, games, music — without Bloom", "Видео, игры, музыка — без Bloom", "视频、游戏、音乐——不含 Bloom"],
+  soundBloom: ["Bloom sound", "Звук Bloom", "Bloom 声音"],
+  soundBloomHint: ["The call and the cinema — they'd hear themselves", "Звонок и кинозал — собеседник услышит сам себя", "通话和影院——对方会听到自己的声音"],
+  camAndScreen: ["Your camera stays on — they see both, like a stream", "Камера остаётся — видно и экран, и тебя, как на стриме", "摄像头保持开启——对方同时看到屏幕和你，像直播一样"],
   share: ["Share", "Показать", "共享"],
   cancel: ["Cancel", "Отмена", "取消"],
   log: {

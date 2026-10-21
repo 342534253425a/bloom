@@ -1,25 +1,27 @@
 /**
  * A two-way audio/video call between the partners (like Telegram calls).
  * The caller always makes the offers, so the two sides never collide; the answerer only answers.
- * Three lanes are set up once: microphone, video (camera or screen) and the screen's sound,
- * so switching camera ↔ screen or muting never needs a new negotiation.
+ * Four lanes are set up once: microphone, camera, the screen's sound and the screen itself,
+ * so the camera and the screen can go together (like a stream) and nothing ever needs a new negotiation.
  */
 import { captureAndroidScreen, canShareAndroidScreen } from "./android-screen";
 import { readStats, type LinkStats } from "./share";
 
 export type CallSignal = { kind: "offer"; sdp: string } | { kind: "answer"; sdp: string } | { kind: "ice"; candidate: RTCIceCandidateInit };
 
-type Lane = "mic" | "video" | "screenAudio";
-const lanes: Lane[] = ["mic", "video", "screenAudio"];
+type Lane = "mic" | "video" | "screenAudio" | "screen";
+const lanes: Lane[] = ["mic", "video", "screenAudio", "screen"];
+const videoLanes: Lane[] = ["video", "screen"];
 
-export type RemoteMedia = { video: MediaStream; audio: MediaStream[] };
+/** The partner's camera (video), shared screen and sound lanes. */
+export type RemoteMedia = { video: MediaStream; screen: MediaStream; audio: MediaStream[] };
 
 export class CallLink {
   private pc: RTCPeerConnection;
   private pending: RTCIceCandidateInit[] = [];
-  private tracks: Record<Lane, MediaStreamTrack | null> = { mic: null, video: null, screenAudio: null };
+  private tracks: Record<Lane, MediaStreamTrack | null> = { mic: null, video: null, screenAudio: null, screen: null };
   private last = { bytes: 0, at: 0 };
-  readonly remote: RemoteMedia = { video: new MediaStream(), audio: [] };
+  readonly remote: RemoteMedia = { video: new MediaStream(), screen: new MediaStream(), audio: [] };
 
   constructor(
     private send: (signal: CallSignal) => void,
@@ -35,13 +37,14 @@ export class CallLink {
     this.pc.onconnectionstatechange = () => this.onState(this.pc.connectionState);
     this.pc.ontrack = (event) => {
       const lane = lanes[this.pc.getTransceivers().indexOf(event.transceiver)] ?? (event.track.kind === "video" ? "video" : "mic");
-      if (lane === "video") {
-        for (const old of this.remote.video.getVideoTracks()) this.remote.video.removeTrack(old);
-        this.remote.video.addTrack(event.track);
+      if (lane === "video" || lane === "screen") {
+        const stream = this.remote[lane];
+        for (const old of stream.getVideoTracks()) stream.removeTrack(old);
+        stream.addTrack(event.track);
       } else this.remote.audio = [...this.remote.audio.filter((stream) => stream.getAudioTracks()[0]?.id !== event.track.id), new MediaStream([event.track])];
-      this.onRemote({ video: this.remote.video, audio: [...this.remote.audio] });
+      this.onRemote({ video: this.remote.video, screen: this.remote.screen, audio: [...this.remote.audio] });
     };
-    if (caller) for (const lane of lanes) this.pc.addTransceiver(lane === "video" ? "video" : "audio", { direction: "sendrecv" });
+    if (caller) for (const lane of lanes) this.pc.addTransceiver(videoLanes.includes(lane) ? "video" : "audio", { direction: "sendrecv" });
   }
 
   private transceiver(lane: Lane): RTCRtpTransceiver | undefined {
@@ -53,13 +56,19 @@ export class CallLink {
     this.tracks[lane] = track;
     const sender = this.transceiver(lane)?.sender;
     if (sender) await sender.replaceTrack(track).catch(() => undefined);
-    if (lane === "video" && sender && track) {
-      const params = sender.getParameters();
-      if (!params.encodings?.length) params.encodings = [{}];
-      params.encodings[0]!.maxBitrate = track.contentHint === "detail" || track.contentHint === "text" ? 3_500_000 : 2_000_000;
-      params.degradationPreference = track.contentHint === "detail" ? "maintain-resolution" : "balanced";
-      await sender.setParameters(params).catch(() => undefined);
-    }
+    if (videoLanes.includes(lane)) for (const videoLane of videoLanes) await this.tune(videoLane);
+  }
+
+  /** The screen gets most of the bandwidth; a camera next to it stays light. */
+  private async tune(lane: Lane) {
+    const sender = this.transceiver(lane)?.sender;
+    const track = this.tracks[lane];
+    if (!sender || !track) return;
+    const params = sender.getParameters();
+    if (!params.encodings?.length) params.encodings = [{}];
+    params.encodings[0]!.maxBitrate = lane === "screen" ? 3_000_000 : this.tracks.screen ? 700_000 : 2_000_000;
+    params.degradationPreference = lane === "screen" ? "maintain-resolution" : "balanced";
+    await sender.setParameters(params).catch(() => undefined);
   }
 
   /** Caller: (re)start the connection; `restart` asks for new network routes after a drop. */

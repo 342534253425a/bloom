@@ -3,6 +3,8 @@ import { getCouple, getItem, getItems, myId, onSignal, putItem, sendMessage, sig
 import { supabase } from "@/shared/api/supabase";
 import { createId } from "@/shared/lib/id";
 import { iceServers } from "@/shared/lib/webrtc/share";
+import { captureScreenSound, canSwitchScreenSound, lastScreenSound } from "@/shared/lib/webrtc/screen-sound";
+import type { ScreenSound } from "@/shared/lib/native";
 import { CallLink, openCamera, openMic, openScreen, type CallSignal, type RemoteMedia } from "@/shared/lib/webrtc/call";
 
 /**
@@ -26,6 +28,8 @@ export type CallState = {
   mic: boolean;
   cam: boolean;
   screen: boolean;
+  /** Sound sent with the shared screen (Windows app); null where it can't be switched. */
+  screenSound: ScreenSound | null;
   facing: "user" | "environment";
   remote: { mic: boolean; cam: boolean; screen: boolean };
   link: RTCPeerConnectionState | "idle";
@@ -48,6 +52,7 @@ const initial: CallState = {
   mic: true,
   cam: false,
   screen: false,
+  screenSound: null,
   facing: "user",
   remote: { mic: true, cam: false, screen: false },
   link: "idle",
@@ -101,7 +106,8 @@ function later(fn: () => void, ms: number) {
 }
 
 function localStream(): MediaStream {
-  return new MediaStream([...(micTrack ? [micTrack] : []), ...(screenTracks ? [screenTracks.video] : camTrack ? [camTrack] : [])]);
+  // Your own corner shows the camera; only the screen when the camera is off.
+  return new MediaStream([...(micTrack ? [micTrack] : []), ...(camTrack ? [camTrack] : screenTracks ? [screenTracks.video] : [])]);
 }
 
 function send(action: string, extra: Record<string, unknown> = {}) {
@@ -158,7 +164,8 @@ function makeLink(caller: boolean) {
     (linkState) => onLinkState(linkState),
   );
   void link.setTrack("mic", micTrack);
-  void link.setTrack("video", screenTracks?.video ?? camTrack);
+  void link.setTrack("video", camTrack);
+  void link.setTrack("screen", screenTracks?.video ?? null);
   void link.setTrack("screenAudio", screenTracks?.audio ?? null);
 }
 
@@ -253,7 +260,7 @@ export async function toggleCamera(): Promise<boolean> {
   if (camTrack) {
     camTrack.stop();
     camTrack = null;
-    if (!screenTracks) await link?.setTrack("video", null);
+    await link?.setTrack("video", null);
     set({ cam: false, local: localStream() });
   } else {
     try {
@@ -261,7 +268,7 @@ export async function toggleCamera(): Promise<boolean> {
     } catch {
       return false;
     }
-    if (!screenTracks) await link?.setTrack("video", camTrack);
+    await link?.setTrack("video", camTrack);
     set({ cam: true, local: localStream() });
   }
   sendMedia();
@@ -275,7 +282,7 @@ export async function flipCamera() {
   if (!camTrack) return;
   camTrack.stop();
   camTrack = await openCamera({ facing }).catch(() => null);
-  if (!screenTracks) await link?.setTrack("video", camTrack);
+  await link?.setTrack("video", camTrack);
   set({ cam: Boolean(camTrack), local: localStream() });
 }
 
@@ -291,7 +298,7 @@ export async function switchDevice(kind: "mic" | "cam", deviceId: string) {
     const next = await openCamera({ deviceId });
     camTrack?.stop();
     camTrack = next;
-    if (!screenTracks) await link?.setTrack("video", next);
+    await link?.setTrack("video", next);
     set({ cam: true });
   }
   set({ local: localStream() });
@@ -310,9 +317,10 @@ export async function toggleScreen(): Promise<boolean> {
     return false;
   }
   screenTracks.video.addEventListener("ended", stopScreen, { once: true });
-  await link?.setTrack("video", screenTracks.video);
+  // The camera stays on next to the screen, like a stream.
+  await link?.setTrack("screen", screenTracks.video);
   await link?.setTrack("screenAudio", screenTracks.audio);
-  set({ screen: true, local: localStream() });
+  set({ screen: true, screenSound: canSwitchScreenSound() ? (screenTracks.audio ? lastScreenSound() : { pc: false, bloom: false }) : null, local: localStream() });
   sendMedia();
   return true;
 }
@@ -322,10 +330,27 @@ function stopScreen() {
   screenTracks.video.stop();
   screenTracks.audio?.stop();
   screenTracks = null;
-  void link?.setTrack("video", camTrack);
+  void link?.setTrack("screen", null);
   void link?.setTrack("screenAudio", null);
-  set({ screen: false, local: localStream() });
+  set({ screen: false, screenSound: null, local: localStream() });
   sendMedia();
+}
+
+/** Switches the shared screen's sound (computer without Bloom / Bloom's own) while sharing. */
+export async function setScreenSound(sound: ScreenSound) {
+  if (!screenTracks) return;
+  set({ screenSound: sound });
+  // Windows won't open a new sound capture while the old one runs, so the old one stops first.
+  screenTracks.audio?.stop();
+  screenTracks.audio = null;
+  const track = await captureScreenSound(sound).catch(() => null);
+  if (!screenTracks) {
+    track?.stop();
+    return;
+  }
+  if ((sound.pc || sound.bloom) && !track) set({ screenSound: { pc: false, bloom: false } });
+  screenTracks.audio = track;
+  await link?.setTrack("screenAudio", track);
 }
 
 /** Connection numbers for the "weak connection" hint. */
