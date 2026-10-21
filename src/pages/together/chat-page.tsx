@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { setActivity, useCouple } from "@/entities/couple";
 import { ChatThread } from "@/features/couple/chat-thread";
+import { CallButtons } from "@/features/call/call-host";
 import { LoveGrid } from "@/features/couple/love";
 import { Glyph } from "@/shared/ui/glyph";
 import { Art } from "@/shared/ui/kit";
@@ -47,6 +48,7 @@ export function ChatPage() {
           <strong>{name}</strong>
           <small>{presence.online ? t(`couple.presence.activity.${presence.activity ?? "other"}`) : t("couple.presence.offline")}</small>
         </span>
+        <CallButtons />
         <button type="button" className="round-btn" aria-label={t("couple.chat.search")} onClick={() => setSearchOpen(!searchOpen)}>
           <Glyph name="search" size={20} />
         </button>

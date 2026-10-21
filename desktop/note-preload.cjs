@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("bloomNote", {
   close: () => ipcRenderer.send("note:close"),
   read: () => ipcRenderer.send("note:read"),
   reply: (text) => ipcRenderer.send("note:reply", String(text)),
+  action: (name) => ipcRenderer.send("note:action", String(name)),
   onData: (listener) => ipcRenderer.on("note:data", (_event, data, fresh) => listener(data, fresh)),
   onLeave: (listener) => ipcRenderer.on("note:leave", () => listener()),
 });

@@ -37,6 +37,8 @@ export type MessageData = {
   pinned?: string | null;
   voice?: VoiceAttachment | null;
   photo?: PhotoAttachment | null;
+  /** A call record (written by the caller when the call ends). */
+  call?: { video: boolean; status: "ended" | "missed" | "declined"; seconds: number } | null;
 };
 
 /** Messages ordered the way the server received them (phone clocks in two countries can disagree). */
@@ -46,10 +48,10 @@ export function messageOrder(a: CoupleItem<MessageData>, b: CoupleItem<MessageDa
 
 export async function sendMessage(
   text: string | null,
-  extra: Partial<Pick<MessageData, "sticker" | "replyTo" | "voice" | "photo">> = {},
+  extra: Partial<Pick<MessageData, "sticker" | "replyTo" | "voice" | "photo" | "call">> = {},
 ) {
   const body = text?.trim() || null;
-  if (!body && !extra.sticker && !extra.voice && !extra.photo) return;
+  if (!body && !extra.sticker && !extra.voice && !extra.photo && !extra.call) return;
   const id = `msg:${createId()}`;
   await putItem(id, "msg", {
     text: body,
@@ -58,6 +60,7 @@ export async function sendMessage(
     replyTo: extra.replyTo ?? null,
     voice: extra.voice ?? null,
     photo: extra.photo ?? null,
+    ...(extra.call ? { call: extra.call } : {}),
   } satisfies MessageData);
   void signal("typing", { typing: false });
 }

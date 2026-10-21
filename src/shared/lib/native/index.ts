@@ -22,6 +22,9 @@ export const DOWNLOADS = {
 /** A notification as the apps show it; chats carry the latest unread lines and their count. */
 export type AppNote = { title: string; body: string; to: string; tag: string; urgent?: boolean; chat?: boolean; lines?: string[]; count?: number; lang?: string };
 
+/** A screen or window offered for sharing in the Windows app. */
+export type ScreenSource = { id: string; name: string; thumb: string; screen: boolean };
+
 /** What the Windows app's preload script (desktop/preload.cjs) exposes. */
 type DesktopBridge = {
   version: string;
@@ -30,6 +33,9 @@ type DesktopBridge = {
   /** Older installs (version "1") don't have these. */
   dismiss?: (key: string) => void;
   onAction?: (listener: (action: string, payload: unknown) => void) => () => void;
+  /** Version "3": calls. */
+  callState?: (state: { phase: string; name: string; video: boolean; mic: boolean; cam: boolean; screen: boolean; front: boolean } | null) => void;
+  onPickScreen?: (listener: (sources: ScreenSource[]) => Promise<{ id: string; audio: boolean } | null>) => () => void;
   setUnread: (count: number) => void;
   setTitleBar: (colors: { color: string; symbol: string }) => void;
   getAutostart: () => Promise<boolean>;

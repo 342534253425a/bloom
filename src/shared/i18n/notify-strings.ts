@@ -103,6 +103,8 @@ export const notifyStrings = {
     ieltsBody: ["When words are waiting for review", "Когда слова ждут повторения", "有单词需要复习时"],
     chinese: ["Chinese phrases", "Китайские фразы", "中文短语"],
     chineseBody: ["Recordings to check or redo", "Записи, которые нужно проверить или переписать", "需要检查或重录的录音"],
+    call: ["Calls", "Звонки", "通话"],
+    callBody: ["When your partner calls, even if Bloom is closed", "Когда звонит партнёр, даже если Bloom закрыт", "伙伴来电时提醒，即使 Bloom 已关闭"],
     message: ["Messages", "Сообщения", "消息"],
     messageBody: ["New messages in your chat", "Новые сообщения в чате", "聊天中的新消息"],
     love: ["Love & surprises", "Любовь и сюрпризы", "爱心与惊喜"],

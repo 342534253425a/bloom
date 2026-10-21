@@ -42,6 +42,7 @@ export const notifyKinds: NotifyKind[] = [
   { id: "ielts", group: "learn", icon: "📚", time: "20:00", to: "/learn" },
   { id: "chinese", group: "learn", icon: "中", time: "20:30", to: "/learn" },
   // Partner
+  { id: "call", group: "partner", icon: "📞", to: "/together/chat" },
   { id: "message", group: "partner", icon: "💬", to: "/together/chat" },
   { id: "love", group: "partner", icon: "💗", to: "/together" },
   { id: "online", group: "partner", icon: "🟢", to: "/together", optIn: true },

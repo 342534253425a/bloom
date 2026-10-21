@@ -182,6 +182,7 @@ function hanziOf(cardId: string): string {
 
 /** How a chat message reads in a notification. */
 export function messagePreview(data: Partial<MessageData>, t: T): string {
+  if (data.call) return data.call.status === "ended" ? `📞 ${t(data.call.video ? "call.log.incomingVideo" : "call.log.incoming")}` : `📞 ${t("call.log.missed")}`;
   if (data.sticker) return t("notify.preview.sticker");
   if (data.voice) return t("notify.preview.voice");
   if (data.photo) return data.text ? `📷 ${data.text}` : t("notify.preview.photo");
@@ -222,7 +223,8 @@ function usePartnerEvents(userId: string, prefs: Prefs | undefined, t: T, path: 
       const say = (kind: string, body: string, extra: { silentInApp?: boolean; to?: string; chat?: { lines: string[]; count: number } } = {}) => notify({ userId, prefs, kind, title: name, body, tag: `${kind}-${item.id}`, ...extra });
       switch (item.kind) {
         case "msg":
-          if (isNew(item) && item.author === partnerId) {
+          // A finished call needs no notification; a missed one does.
+          if (isNew(item) && item.author === partnerId && (d.call as MessageData["call"])?.status !== "ended") {
             const chat = unreadChat(userId, partnerId, t);
             const text = chat.lines.at(-1) ?? "";
             say("message", text, { silentInApp: path.startsWith("/together/chat") || path.startsWith("/watch"), chat });

@@ -26,10 +26,10 @@
       "main.cjs",
       "preload.cjs",
       "note.html",
+      "call.html",
       "note-preload.cjs",
       "offline.html",
-      "build/icon.png",
-      "build/dot.png"
+      "build/*.png"
     ],
     "protocols": [
       {

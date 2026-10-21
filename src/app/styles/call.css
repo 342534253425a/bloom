@@ -1,0 +1,511 @@
+/* ---------- Calls (Telegram-style, in Bloom colours) ---------- */
+
+.call-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  color: #fff;
+  overflow: hidden;
+  animation: call-in 0.32s var(--ease, ease) both;
+}
+@keyframes call-in {
+  from {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+}
+.call-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(600px 420px at 15% 10%, rgba(92, 207, 160, 0.55), transparent 70%),
+    radial-gradient(560px 460px at 90% 20%, rgba(255, 143, 171, 0.45), transparent 70%),
+    radial-gradient(700px 520px at 50% 110%, rgba(140, 120, 230, 0.6), transparent 70%),
+    linear-gradient(160deg, #2a2440, #1d1a2e 60%, #241c35);
+}
+.call-screen.has-video .call-backdrop {
+  background: #0f0d18;
+}
+.call-stage {
+  position: relative;
+  min-height: 0;
+}
+.call-remote,
+.call-remote video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.call-remote video {
+  object-fit: contain;
+  background: #0f0d18;
+}
+.call-remote video.is-mirror,
+.call-self video.is-mirror {
+  transform: scaleX(-1);
+}
+.call-avatar {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.call-pulse {
+  width: min(42vw, 190px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.12), 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+.call-pulse img {
+  width: 82%;
+  height: auto;
+}
+.call-pulse.is-ringing {
+  animation: call-ring 1.6s ease-out infinite;
+}
+@keyframes call-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(92, 207, 160, 0.55), 0 20px 60px rgba(0, 0, 0, 0.35);
+  }
+  100% {
+    box-shadow: 0 0 0 44px rgba(92, 207, 160, 0), 0 20px 60px rgba(0, 0, 0, 0.35);
+  }
+}
+
+.call-top {
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: max(18px, env(safe-area-inset-top)) 20px 30px;
+  background: linear-gradient(rgba(15, 13, 24, 0.55), transparent);
+}
+.call-top > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.call-top strong {
+  font-family: var(--font-display);
+  font-size: 26px;
+  line-height: 1.1;
+}
+.call-top span {
+  font-size: 14px;
+  font-weight: 700;
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
+}
+.call-top em {
+  font-style: normal;
+  font-size: 12.5px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+.call-screen:not(.has-video) .call-top {
+  justify-content: center;
+  text-align: center;
+  background: none;
+  padding-top: max(40px, env(safe-area-inset-top));
+}
+.call-screen:not(.has-video) .call-top-actions {
+  position: absolute;
+  right: 16px;
+  top: max(16px, env(safe-area-inset-top));
+}
+.call-top-actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.call-mini-btn,
+.call-key {
+  height: 38px;
+  min-width: 38px;
+  padding: 0 10px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 19px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+  font-size: 17px;
+  letter-spacing: 2px;
+}
+.call-key-card {
+  position: absolute;
+  z-index: 3;
+  top: 90px;
+  right: 16px;
+  max-width: 300px;
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.3);
+  text-align: center;
+}
+.call-key-card b {
+  font-size: 30px;
+  letter-spacing: 6px;
+}
+.call-key-card span {
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+.call-self {
+  position: absolute;
+  z-index: 2;
+  right: 16px;
+  bottom: 16px;
+  width: clamp(110px, 22vw, 240px);
+  aspect-ratio: 3 / 4;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(255, 255, 255, 0.5);
+  cursor: grab;
+  touch-action: none;
+}
+@media (min-width: 900px) {
+  .call-self {
+    aspect-ratio: 16 / 10;
+  }
+}
+.call-self video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.call-sharing {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(92, 207, 160, 0.9);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.call-controls {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: clamp(10px, 3vw, 22px);
+  padding: 18px 16px max(26px, env(safe-area-inset-bottom));
+}
+.call-controls.is-incoming {
+  gap: clamp(26px, 10vw, 70px);
+  padding-bottom: max(48px, env(safe-area-inset-bottom));
+}
+.call-btn {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+.call-btn > span {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(14px);
+  transition:
+    transform 0.15s,
+    background 0.15s;
+}
+.call-btn.is-big > span {
+  width: 72px;
+  height: 72px;
+}
+.call-btn:hover > span {
+  background: rgba(255, 255, 255, 0.28);
+}
+.call-btn:active > span {
+  transform: scale(0.92);
+}
+.call-btn.is-off > span {
+  background: #fff;
+  color: #2a2440;
+}
+.call-btn.is-end > span {
+  background: #ff5f6d;
+  box-shadow: 0 8px 24px rgba(255, 95, 109, 0.45);
+}
+.call-btn.is-accept > span {
+  background: #36c89c;
+  box-shadow: 0 8px 24px rgba(54, 200, 156, 0.5);
+  animation: call-nudge 1.4s ease-in-out infinite;
+}
+@keyframes call-nudge {
+  50% {
+    transform: translateY(-4px);
+  }
+}
+.call-btn small {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.9;
+}
+
+.call-devices {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: end center;
+  padding-bottom: 130px;
+}
+.call-devices-card {
+  display: grid;
+  gap: 10px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 16px;
+  border-radius: 20px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+.call-device {
+  display: grid;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--ink-2);
+}
+.call-device select {
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 9px 10px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line-2);
+  background: #fff;
+}
+
+/* Minimized call: a floating pill above Bloom. */
+.call-mini {
+  position: fixed;
+  z-index: 880;
+  right: 16px;
+  bottom: calc(var(--dock, 0px) + 22px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 22px;
+  color: #fff;
+  background: linear-gradient(135deg, #2a2440, #3b2f5c);
+  box-shadow: 0 12px 32px rgba(42, 36, 64, 0.45);
+  animation: call-in 0.25s ease both;
+}
+.call-mini-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 6px 0 0;
+  text-align: left;
+}
+.call-mini-body img,
+.call-mini-body video {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.9);
+}
+.call-mini-body span {
+  display: grid;
+}
+.call-mini-body strong {
+  font-size: 14px;
+}
+.call-mini-body small {
+  font-size: 12px;
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
+}
+.call-mini-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  cursor: pointer;
+}
+.call-mini-icon.is-off {
+  background: #fff;
+  color: #2a2440;
+}
+.call-mini-icon.is-end {
+  background: #ff5f6d;
+}
+
+/* Call records in the chat */
+.chat-call {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 190px;
+}
+.chat-call-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(54, 200, 156, 0.16);
+  font-size: 17px;
+}
+.chat-call.is-missed .chat-call-icon {
+  background: rgba(255, 95, 109, 0.14);
+}
+.chat-call-copy {
+  display: grid;
+  flex: 1;
+}
+.chat-call-copy b {
+  font-size: 14px;
+}
+.chat-call.is-missed .chat-call-copy b {
+  color: #e2445a;
+}
+.chat-call-copy small {
+  opacity: 0.7;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.chat-call-again {
+  border: 0;
+  background: none;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+}
+
+/* Choosing what to share (Windows app) */
+.screen-pick {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(20, 16, 34, 0.55);
+  backdrop-filter: blur(6px);
+}
+.screen-pick-card {
+  width: min(760px, 100%);
+  max-height: 90vh;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto auto;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 24px;
+  background: var(--surface, #fff);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+.screen-pick-card h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 24px;
+}
+.screen-pick-tabs {
+  display: flex;
+  gap: 6px;
+}
+.screen-pick-tabs button {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 16px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  background: var(--mint-100);
+  color: var(--ink-2);
+}
+.screen-pick-tabs button.is-on {
+  background: var(--mint);
+  color: #fff;
+}
+.screen-pick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.screen-pick-grid button {
+  display: grid;
+  gap: 6px;
+  border: 2px solid transparent;
+  border-radius: 16px;
+  padding: 8px;
+  background: var(--bg, #f3f1f8);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+.screen-pick-grid button.is-on {
+  border-color: var(--mint);
+  box-shadow: 0 0 0 4px rgba(54, 200, 156, 0.18);
+}
+.screen-pick-grid img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  border-radius: 10px;
+  background: #1d1a2e;
+}
+.screen-pick-grid span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.screen-pick-audio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+.screen-pick-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}

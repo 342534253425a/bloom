@@ -6,6 +6,7 @@ import {
   getCouple,
   markRead,
   messageOrder,
+  myId,
   sendMessage,
   signal,
   toggleReaction,
@@ -23,6 +24,7 @@ import { haptic, pop } from "@/shared/lib/motion/fx";
 import { Glyph } from "@/shared/ui/glyph";
 import { Art, toast } from "@/shared/ui/kit";
 import { RecordButton, VoicePlayer } from "./voice";
+import { startCall } from "@/entities/call";
 
 export const stickers = [
   "c-wave", "c-hug-heart", "c-arms-up", "c-two-wink", "c-pair-hearts", "c-lying-heart", "c-hug-big-heart", "c-hug-star",
@@ -41,8 +43,16 @@ function timeLabel(iso: string) {
   return new Intl.DateTimeFormat(localeOf(), { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 }
 
+/** "Outgoing video call · 5:12", "Missed call"… seen from this person's side. */
+export function callLabel(t: (key: string) => string, call: NonNullable<MessageData["call"]>, mine: boolean): string {
+  if (call.status === "declined") return t("call.log.declined");
+  if (call.status === "missed") return mine ? t("call.log.cancelled") : t("call.log.missed");
+  return t(`call.log.${mine ? "outgoing" : "incoming"}${call.video ? "Video" : ""}`);
+}
+
 function preview(t: (key: string) => string, message: Msg | undefined): string {
   if (!message) return t("couple.chat.deleted");
+  if (message.data.call) return `📞 ${callLabel(t, message.data.call, message.author === myId())}`;
   if (message.data.voice) return `🎤 ${t("couple.chat.voice")}`;
   if (message.data.photo) return `📷 ${t("couple.chat.photo")}`;
   if (message.data.sticker) return `🌸 ${t("couple.chat.sticker")}`;
@@ -295,6 +305,7 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
                       <span>{preview(t, quoted)}</span>
                     </button>
                   ) : null}
+                  {message.data.call ? <CallRecord call={message.data.call} mine={mine} /> : null}
                   {message.data.sticker ? <Art name={message.data.sticker} /> : null}
                   {message.data.photo ? <Photo path={message.data.photo.path} ratio={message.data.photo.width / message.data.photo.height} onOpen={setViewer} /> : null}
                   {message.data.voice ? <VoicePlayer path={message.data.voice.path} duration={message.data.voice.duration} tone={mine ? "dark" : "light"} /> : null}
@@ -570,5 +581,37 @@ function Photo({ path, ratio, onOpen }: { path: string; ratio: number; onOpen: (
     <button type="button" className="chat-photo" style={{ aspectRatio: String(ratio || 1) }} onClick={(event) => { event.stopPropagation(); if (url) onOpen(url); }}>
       {url ? <img src={url} alt="" loading="lazy" /> : <span className="spinner" />}
     </button>
+  );
+}
+
+/** A call in the chat: what kind, how long, and a button to call back. */
+function CallRecord({ call, mine }: { call: NonNullable<MessageData["call"]>; mine: boolean }) {
+  const { t } = useTranslation();
+  const missed = call.status !== "ended";
+  const minutes = Math.floor(call.seconds / 60);
+  const length = call.seconds ? ` · ${minutes}:${String(call.seconds % 60).padStart(2, "0")}` : "";
+  return (
+    <span className={`chat-call ${missed ? "is-missed" : ""}`}>
+      <span className="chat-call-icon">{call.video ? "📹" : "📞"}</span>
+      <span className="chat-call-copy">
+        <b>{callLabel(t, call, mine)}</b>
+        <small>
+          {mine ? "↗" : "↙"}
+          {length}
+        </small>
+      </span>
+      <button
+        type="button"
+        className="chat-call-again"
+        onClick={(event) => {
+          event.stopPropagation();
+          void startCall(call.video);
+        }}
+        aria-label={t("call.log.again")}
+        title={t("call.log.again")}
+      >
+        {call.video ? "📹" : "📞"}
+      </button>
+    </span>
   );
 }

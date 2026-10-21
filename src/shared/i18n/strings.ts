@@ -1,3 +1,4 @@
+import { callStrings } from "./call-strings";
 import { coupleStrings } from "./couple-strings";
 import { learnStrings } from "./learn-strings";
 import { notifyStrings } from "./notify-strings";
@@ -1190,6 +1191,7 @@ export const strings = {
   },
 
   tour: tourStrings,
+  call: callStrings,
   couple: coupleStrings,
   learn: learnStrings,
   notify: notifyStrings,

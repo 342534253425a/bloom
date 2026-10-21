@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Bloom</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: transparent; font-family: "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; }
+      .card {
+        margin: 10px;
+        padding: 18px 18px 16px;
+        border-radius: 24px;
+        color: #fff;
+        background:
+          radial-gradient(260px 180px at 0% 0%, rgba(92, 207, 160, 0.6), transparent 70%),
+          radial-gradient(260px 200px at 100% 0%, rgba(255, 143, 171, 0.5), transparent 70%),
+          linear-gradient(160deg, #2f2848, #1d1a2e);
+        box-shadow: 0 18px 44px rgba(20, 16, 34, 0.5);
+        display: grid;
+        gap: 14px;
+        animation: in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+        -webkit-app-region: drag;
+      }
+      @keyframes in { from { opacity: 0; transform: translateY(20px) scale(0.96); } }
+      .who { display: flex; align-items: center; gap: 14px; }
+      .avatar {
+        width: 58px; height: 58px; border-radius: 50%; flex: none;
+        display: grid; place-items: center; font-size: 24px; font-weight: 800;
+        background: linear-gradient(140deg, #8be3c4, #36c89c 55%, #ff9fb6);
+        animation: ring 1.6s ease-out infinite;
+      }
+      @keyframes ring { 0% { box-shadow: 0 0 0 0 rgba(92, 207, 160, 0.6); } 100% { box-shadow: 0 0 0 18px rgba(92, 207, 160, 0); } }
+      .name { font-size: 19px; font-weight: 800; }
+      .kind { font-size: 13px; opacity: 0.8; font-weight: 600; }
+      .buttons { display: flex; gap: 10px; -webkit-app-region: no-drag; }
+      button {
+        flex: 1; border: 0; border-radius: 16px; padding: 11px 8px; font: inherit; font-size: 13.5px; font-weight: 800; color: #fff; cursor: pointer;
+        display: flex; align-items: center; justify-content: center; gap: 6px;
+      }
+      button:active { transform: scale(0.97); }
+      .decline { background: #ff5f6d; }
+      .audio { background: rgba(255, 255, 255, 0.18); }
+      .video { background: #36c89c; }
+    </style>
+  </head>
+  <body>
+    <div class="card" id="card">
+      <div class="who">
+        <div class="avatar" id="avatar"></div>
+        <div>
+          <div class="name" id="name"></div>
+          <div class="kind" id="kind"></div>
+        </div>
+      </div>
+      <div class="buttons">
+        <button class="decline" id="decline" type="button"></button>
+        <button class="audio" id="audio" type="button"></button>
+        <button class="video" id="video" type="button"></button>
+      </div>
+    </div>
+    <script>
+      const note = window.bloomNote;
+      const words = {
+        ru: { video: "Видеозвонок · звонит вам", audio: "Аудиозвонок · звонит вам", decline: "Отклонить", accept: "Принять", withVideo: "С видео", audioOnly: "Только звук" },
+        zh: { video: "视频通话 · 正在呼叫你", audio: "语音通话 · 正在呼叫你", decline: "拒绝", accept: "接听", withVideo: "视频接听", audioOnly: "仅语音" },
+        en: { video: "Video call · calling you", audio: "Voice call · calling you", decline: "Decline", accept: "Accept", withVideo: "With video", audioOnly: "Audio only" },
+      };
+      note.onData((data) => {
+        const w = words[data.lang] || words.en;
+        document.getElementById("avatar").textContent = (data.title || "♥").trim().charAt(0).toUpperCase();
+        document.getElementById("name").textContent = data.title;
+        document.getElementById("kind").textContent = data.video ? w.video : w.audio;
+        document.getElementById("decline").textContent = "✕ " + w.decline;
+        document.getElementById("audio").textContent = "📞 " + (data.video ? w.audioOnly : w.accept);
+        const video = document.getElementById("video");
+        video.textContent = "📹 " + w.withVideo;
+        video.style.display = data.video ? "" : "none";
+        requestAnimationFrame(() => note.size(Math.ceil(document.getElementById("card").getBoundingClientRect().height) + 20));
+      });
+      document.getElementById("decline").onclick = () => note.action("call-decline");
+      document.getElementById("audio").onclick = () => note.action("call-accept-audio");
+      document.getElementById("video").onclick = () => note.action("call-accept-video");
+    </script>
+  </body>
+</html>

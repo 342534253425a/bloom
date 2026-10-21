@@ -106,6 +106,9 @@ const copy: Record<string, L> = {
   voice: ["🎤 Voice message", "🎤 Голосовое сообщение", "🎤 语音消息"],
   photo: ["📷 Photo", "📷 Фото", "📷 照片"],
   sticker: ["🌸 Sticker", "🌸 Стикер", "🌸 贴纸"],
+  callAudio: ["📞 Voice call — tap to answer", "📞 Аудиозвонок — нажмите, чтобы ответить", "📞 语音来电，点按接听"],
+  callVideo: ["📹 Video call — tap to answer", "📹 Видеозвонок — нажмите, чтобы ответить", "📹 视频来电，点按接听"],
+  missedCall: ["📞 Missed call", "📞 Пропущенный звонок", "📞 未接来电"],
   newMessages: ["{count} new messages", "Новых сообщений: {count}", "{count} 条新消息"],
   test: ["Push works! This is how Bloom reaches you when it's closed 🌱", "Пуш работает! Так Bloom будет писать, когда он закрыт 🌱", "推送正常！Bloom 关闭时就这样提醒你 🌱"],
 };
@@ -392,10 +395,13 @@ async function itemEvent(op: string, record: Item, old: Item | null, actor: stri
   switch (record.kind) {
     case "msg": {
       if (!isNew) return;
+      // A finished call written into the chat needs no push; a missed one does.
+      const call = d.call as { status?: string } | undefined;
+      if (call?.status === "ended") return;
       kind = "message";
       // Like messengers: one card per chat with the unread messages and how many there are.
       const preview = (m: Record<string, unknown>) =>
-        m.sticker ? say(lang, "sticker") : m.voice ? say(lang, "voice") : m.photo ? (m.text ? `📷 ${m.text}` : say(lang, "photo")) : String(m.text ?? "").slice(0, 160);
+        m.call ? say(lang, "missedCall") : m.sticker ? say(lang, "sticker") : m.voice ? say(lang, "voice") : m.photo ? (m.text ? `📷 ${m.text}` : say(lang, "photo")) : String(m.text ?? "").slice(0, 160);
       const { data: read } = await db.from("couple_items").select("data").eq("couple_key", record.couple_key).eq("id", `read:${partner.id}`).maybeSingle();
       const seen = String((read?.data as { seen?: string } | null)?.seen ?? "");
       let query = db.from("couple_items").select("data, created_at").eq("couple_key", record.couple_key).eq("kind", "msg").eq("author", actor).order("created_at", { ascending: false }).limit(50);
@@ -406,6 +412,12 @@ async function itemEvent(op: string, record: Item, old: Item | null, actor: stri
       body = (list.length ? list.slice(0, 4).reverse() : [d]).map(preview).join("\n");
       break;
     }
+    case "call":
+      // "… is calling": wakes the partner's phone or computer when Bloom is closed.
+      if (!isNew || d.state !== "ringing") return;
+      kind = "call";
+      body = say(lang, d.video ? "callVideo" : "callAudio");
+      break;
     case "effect":
       if (!isNew || d.to !== partner.id) return;
       kind = "love";
@@ -470,10 +482,11 @@ async function itemEvent(op: string, record: Item, old: Item | null, actor: stri
     default:
       return;
   }
-  if (!on(kind)) return;
-  const urls: Record<string, string> = { message: "/together/chat", love: "/together", sharedFocus: "/focus", garden: "/together", question: "/together", pairHabit: "/together", duel: "/learn", phrase: "/learn", partnerDay: "/together" };
+  // Calls are on unless switched off (older settings don't list them yet).
+  if (kind === "call" ? p.on?.call === false : !on(kind)) return;
+  const urls: Record<string, string> = { call: "/together/chat", message: "/together/chat", love: "/together", sharedFocus: "/focus", garden: "/together", question: "/together", pairHabit: "/together", duel: "/learn", phrase: "/learn", partnerDay: "/together" };
   const { minutes } = local(subs[0].tz || "UTC");
-  if (kind !== "message" && quiet(p, minutes)) return;
+  if (kind !== "message" && kind !== "call" && quiet(p, minutes)) return;
   const title = kind === "message" && count > 1 ? `${name} · ${say(lang, "newMessages", { count })}` : name;
   await deliver(subs, { title, body, url: urls[kind], tag: kind === "message" ? "message" : `${kind}-${record.id}`, count });
 }

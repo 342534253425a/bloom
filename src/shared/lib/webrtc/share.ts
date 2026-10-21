@@ -45,7 +45,7 @@ export type LinkStats = { state: RTCPeerConnectionState | "idle"; rtt: number | 
 
 const emptyStats: LinkStats = { state: "idle", rtt: null, kbps: null, width: null, height: null, fps: null, relayed: false };
 
-async function readStats(pc: RTCPeerConnection, direction: "outbound" | "inbound", last: { bytes: number; at: number }): Promise<LinkStats> {
+export async function readStats(pc: RTCPeerConnection, direction: "outbound" | "inbound", last: { bytes: number; at: number }): Promise<LinkStats> {
   const report = await pc.getStats();
   let rtt: number | null = null;
   let kbps: number | null = null;

@@ -3,7 +3,7 @@
  * it lives in the tray when closed, starts with Windows, shows Windows notifications and can share
  * the screen with sound in the cinema. The page itself updates with every site deploy.
  */
-const { app, BrowserWindow, Menu, Tray, desktopCapturer, ipcMain, nativeImage, screen, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, Tray, desktopCapturer, ipcMain, nativeImage, powerSaveBlocker, screen, session, shell } = require("electron");
 const path = require("node:path");
 
 const SITE = process.env.BLOOM_URL || "https://bloom-love.online/";
@@ -102,6 +102,12 @@ function createWindow() {
     }
   });
   win.on("focus", () => win.flashFrame(false));
+  // Hiding Bloom during a video call keeps the partner in a small floating picture.
+  const keepPicture = () => {
+    if (lastCall?.phase === "active") void win.webContents.executeJavaScript("window.__bloomCallPip && window.__bloomCallPip()", true).catch(() => undefined);
+  };
+  win.on("minimize", keepPicture);
+  win.on("hide", keepPicture);
 
   // Links to other sites open in the normal browser; Bloom pages stay in the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -149,6 +155,8 @@ function placeNotes() {
 
 function armNote(note) {
   if (note.timer) clearTimeout(note.timer);
+  // A ringing call stays until it is answered, declined or given up.
+  if (note.data.call) return;
   note.timer = note.held ? null : setTimeout(() => closeNote(note), note.data.chat ? 9000 : 6500);
 }
 
@@ -204,7 +212,7 @@ function showNote(data) {
     noteWin.showInactive();
     armNote(note);
   });
-  void noteWin.loadFile(path.join(__dirname, "note.html"));
+  void noteWin.loadFile(path.join(__dirname, data.call ? "call.html" : "note.html"));
 }
 
 function noteOf(event) {
@@ -239,6 +247,13 @@ ipcMain.on("note:read", (event) => {
   const note = noteOf(event);
   if (!note) return;
   win?.webContents.send("bloom:action", "read", null);
+  closeNote(note);
+});
+ipcMain.on("note:action", (event, action) => {
+  const note = noteOf(event);
+  if (!note) return;
+  if (String(action).startsWith("call-accept")) show();
+  win?.webContents.send("bloom:action", String(action), null);
   closeNote(note);
 });
 ipcMain.on("note:reply", (event, text) => {
@@ -312,6 +327,84 @@ ipcMain.on("bloom:notify", (event, input) => {
   });
   if (win && !win.isFocused()) win.flashFrame(true);
 });
+/* ------------------------------------------------------------------ calls */
+
+let callBlocker = -1;
+let lastCall = null;
+
+function icon32(name) {
+  return nativeImage.createFromPath(path.join(__dirname, "build", `${name}.png`));
+}
+
+/** Taskbar buttons under the Bloom thumbnail during a call: microphone, camera, hang up. */
+function callButtons(call) {
+  if (!win) return;
+  if (!call || !["active", "connecting", "outgoing"].includes(call.phase)) return win.setThumbarButtons([]);
+  const act = (name) => () => win?.webContents.send("bloom:action", name, null);
+  win.setThumbarButtons([
+    { tooltip: call.mic ? "Выключить микрофон · Mute" : "Включить микрофон · Unmute", icon: icon32(call.mic ? "call-mic" : "call-mic-off"), click: act("call-mic") },
+    { tooltip: call.cam ? "Выключить камеру · Camera off" : "Включить камеру · Camera on", icon: icon32(call.cam ? "call-cam" : "call-cam-off"), click: act("call-cam") },
+    { tooltip: "Завершить · End call", icon: icon32("call-end"), click: act("call-end") },
+  ]);
+}
+
+ipcMain.on("bloom:call", (event, call) => {
+  if (!fromBloom(event)) return;
+  const was = lastCall;
+  lastCall = call;
+  // Ringing: a call card over everything unless Bloom is already in front.
+  if (call?.phase === "incoming" && was?.phase !== "incoming") {
+    if (!win?.isVisible() || !win.isFocused() || win.isMinimized()) showNote({ key: "incoming-call", call: true, title: String(call.name), video: Boolean(call.video), lang: app.getLocale().slice(0, 2) });
+    win?.flashFrame(true);
+  }
+  if (call?.phase !== "incoming") for (const note of notes.filter((item) => item.key === "incoming-call")) closeNote(note);
+  // No sleep and no screen-off while talking.
+  const talking = Boolean(call) && ["outgoing", "connecting", "active"].includes(call.phase);
+  if (talking && callBlocker < 0) callBlocker = powerSaveBlocker.start("prevent-display-sleep");
+  if (!talking && callBlocker >= 0) {
+    powerSaveBlocker.stop(callBlocker);
+    callBlocker = -1;
+  }
+  callButtons(call);
+  tray?.setToolTip(talking ? `Bloom · 📞 ${call.name}` : "Bloom");
+});
+
+/* ------------------------------------------------------------------ choosing a screen to share */
+
+let pickerReady = false;
+/** @type {((choice: { id: string; audio: boolean } | null) => void) | null} */
+let pickerReply = null;
+ipcMain.on("bloom:picker-ready", (event) => {
+  if (fromBloom(event)) pickerReady = true;
+});
+ipcMain.on("bloom:screen-picked", (event, choice) => {
+  if (!fromBloom(event) || !pickerReply) return;
+  const reply = pickerReply;
+  pickerReply = null;
+  reply(choice && typeof choice.id === "string" ? { id: choice.id, audio: Boolean(choice.audio) } : null);
+});
+
+async function pickScreen(callback) {
+  const sources = await desktopCapturer.getSources({ types: ["screen", "window"], thumbnailSize: { width: 400, height: 225 } });
+  const own = new Set(BrowserWindow.getAllWindows().map((item) => item.getMediaSourceId()));
+  const offered = sources.filter((source) => !own.has(source.id) && source.name);
+  if (!pickerReady || !win) {
+    const first = offered.find((source) => source.id.startsWith("screen"));
+    return callback(first ? { video: first, audio: "loopback" } : {});
+  }
+  show();
+  pickerReply?.(null);
+  const choice = await new Promise((resolve) => {
+    pickerReply = resolve;
+    win.webContents.send(
+      "bloom:pick-screen",
+      offered.map((source) => ({ id: source.id, name: source.name, thumb: source.thumbnail.toDataURL(), screen: source.id.startsWith("screen") })),
+    );
+  });
+  const source = choice && offered.find((item) => item.id === choice.id);
+  callback(source ? { video: source, ...(choice.audio ? { audio: "loopback" } : {}) } : {});
+}
+
 ipcMain.on("bloom:dismiss", (event, key) => {
   if (!fromBloom(event)) return;
   for (const note of notes.filter((item) => item.key === String(key))) closeNote(note);
@@ -358,14 +451,8 @@ app.whenReady().then(() => {
   checkForUpdates();
   setInterval(checkForUpdates, 6 * 3600_000);
 
-  // The cinema shares the whole screen with the computer's sound (like Discord).
-  session.defaultSession.setDisplayMediaRequestHandler(
-    async (_request, callback) => {
-      const sources = await desktopCapturer.getSources({ types: ["screen"] });
-      callback(sources[0] ? { video: sources[0], audio: "loopback" } : {});
-    },
-    { useSystemPicker: false },
-  );
+  // Calls and the cinema: pick a screen or window (with the computer's sound if wanted), like Telegram.
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => void pickScreen(callback).catch(() => callback({})), { useSystemPicker: false });
   // Camera, microphone and notifications for Bloom only.
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => {
     const ok = contents.getURL().startsWith(ORIGIN) && ["media", "notifications", "clipboard-read", "clipboard-sanitized-write", "display-capture", "fullscreen"].includes(permission);
