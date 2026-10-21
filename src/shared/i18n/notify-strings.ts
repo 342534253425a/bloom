@@ -127,6 +127,27 @@ export const notifyStrings = {
     partnerDayBody: ["When your partner finishes all habits", "Когда партнёр закрыл все привычки", "伙伴完成所有习惯时"],
   },
 
+  preview: {
+    voice: ["🎤 Voice message", "🎤 Голосовое сообщение", "🎤 语音消息"],
+    photo: ["📷 Photo", "📷 Фото", "📷 照片"],
+    sticker: ["🌸 Sticker", "🌸 Стикер", "🌸 贴纸"],
+  },
+  devices: {
+    title: ["Devices that get notifications", "Устройства с уведомлениями", "接收通知的设备"],
+    hint: [
+      "Switch off old phones and browsers you no longer use. Signing out on a device also switches it off.",
+      "Отключите старые телефоны и браузеры, которыми больше не пользуетесь. Выход из аккаунта на устройстве тоже отключает его.",
+      "关闭不再使用的旧手机和浏览器。在设备上退出登录也会关闭它。",
+    ],
+    android: ["Android app", "Android-приложение", "Android 应用"],
+    iphone: ["iPhone", "iPhone", "iPhone"],
+    browser: ["Browser (Chrome, Yandex, Edge…)", "Браузер (Chrome, Яндекс, Edge…)", "浏览器（Chrome、Yandex、Edge…）"],
+    windows: ["Windows browser", "Браузер Windows", "Windows 浏览器"],
+    this: ["this device", "это устройство", "本设备"],
+    seen: ["Last active {{date}}", "Активно: {{date}}", "最近活跃：{{date}}"],
+    remove: ["Switch off", "Отключить", "关闭"],
+    removed: ["Switched off", "Отключено", "已关闭"],
+  },
   app: {
     on: ["Notifications are on", "Уведомления включены", "通知已开启"],
     desktopBody: [

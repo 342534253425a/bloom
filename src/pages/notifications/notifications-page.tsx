@@ -6,7 +6,7 @@ import { savePrefs, usePrefs, type Prefs } from "@/entities/prefs";
 import { useUser } from "@/entities/session";
 import { kindById, notifyGroups, notifyKinds } from "@/shared/config/notifications";
 import { currentLang } from "@/shared/i18n";
-import { currentSubscription, enablePush, lastPushError, needsInstallForPush, pushSupported, type EnableResult } from "@/shared/lib/push";
+import { currentSubscription, enablePush, lastPushError, listPushDevices, needsInstallForPush, pushSupported, removePushDevice, type EnableResult, type PushDevice } from "@/shared/lib/push";
 import { Empty, PageHead, Tabs } from "@/shared/ui/bloom";
 import { Glyph } from "@/shared/ui/glyph";
 import { Toggle, toast } from "@/shared/ui/kit";
@@ -93,6 +93,45 @@ function deviceName() {
 
 function permissionState(): NotificationPermission | "unsupported" {
   return "Notification" in window ? Notification.permission : "unsupported";
+}
+
+const deviceIcon: Record<PushDevice["kind"], string> = { android: "🤖", iphone: "📱", browser: "🌐", windows: "💻" };
+
+/** Every phone and browser that gets this account's notifications, so old ones can be switched off. */
+function Devices() {
+  const { t } = useTranslation();
+  const [list, setList] = useState<PushDevice[] | null>(null);
+  const load = () => void listPushDevices().then(setList).catch(() => setList([]));
+  useEffect(load, []);
+  if (!list?.length) return null;
+  return (
+    <section className="card notify-group rise">
+      <h3 className="tiny-head">{t("notify.devices.title")}</h3>
+      <p className="tiny">{t("notify.devices.hint")}</p>
+      {list.map((device) => (
+        <div key={device.endpoint} className="notify-row">
+          <span className="notify-icon">{deviceIcon[device.kind]}</span>
+          <span className="notify-copy">
+            <strong>
+              {t(`notify.devices.${device.kind}`)}
+              {device.current ? ` · ${t("notify.devices.this")}` : ""}
+            </strong>
+            <small>{t("notify.devices.seen", { date: new Date(device.updatedAt).toLocaleString(currentLang(), { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) })}</small>
+          </span>
+          <button
+            type="button"
+            className="btn is-sm is-ghost"
+            onClick={() => {
+              void removePushDevice(device.endpoint).then(load);
+              toast(t("notify.devices.removed"), "c-arms-up");
+            }}
+          >
+            {t("notify.devices.remove")}
+          </button>
+        </div>
+      ))}
+    </section>
+  );
 }
 
 /** In the Windows and Android apps notifications come from the app itself. */
@@ -216,6 +255,8 @@ function Settings({ userId, prefs }: { userId: string; prefs: Prefs }) {
           {error ? <p className="tiny notify-error">{t("notify.push.error", { text: error })}</p> : null}
         </div>
       </section>
+
+      <Devices />
 
       <div className="row-btns is-end">
         <button type="button" className="btn is-sm is-ghost" onClick={() => setAll(true)}>

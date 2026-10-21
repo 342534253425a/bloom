@@ -33,7 +33,7 @@ type Snapshot = {
   weekStart?: "monday" | "sunday";
 };
 type Sub = { endpoint: string; user_id: string; sub: webpush.PushSubscription; tz: string; lang: string; prefs: Snapshot; updated_at?: string };
-type Msg = { title: string; body: string; url: string; tag: string };
+type Msg = { title: string; body: string; url: string; tag: string; count?: number };
 
 let config: Config | null = null;
 async function getConfig(): Promise<Config> {
@@ -103,6 +103,10 @@ const copy: Record<string, L> = {
   t_water: ["Water", "Вода", "喝水"],
   t_move: ["Move a little", "Подвигаться", "活动一下"],
   t_ielts: ["IELTS", "IELTS", "雅思"],
+  voice: ["🎤 Voice message", "🎤 Голосовое сообщение", "🎤 语音消息"],
+  photo: ["📷 Photo", "📷 Фото", "📷 照片"],
+  sticker: ["🌸 Sticker", "🌸 Стикер", "🌸 贴纸"],
+  newMessages: ["{count} new messages", "Новых сообщений: {count}", "{count} 条新消息"],
   test: ["Push works! This is how Bloom reaches you when it's closed 🌱", "Пуш работает! Так Bloom будет писать, когда он закрыт 🌱", "推送正常！Bloom 关闭时就这样提醒你 🌱"],
 };
 
@@ -164,7 +168,15 @@ async function sendFcm(token: string, msg: Msg): Promise<{ status: number; error
         android: {
           priority: "high",
           ttl: "21600s",
-          notification: { channel_id: "bloom", icon: "ic_stat_bloom", color: "#36c89c", tag: msg.tag, default_sound: true, default_vibrate_timings: true },
+          notification: {
+            channel_id: "bloom",
+            icon: "ic_stat_bloom",
+            color: "#36c89c",
+            tag: msg.tag,
+            default_sound: true,
+            default_vibrate_timings: true,
+            ...(msg.count && msg.count > 1 ? { notification_count: msg.count } : {}),
+          },
         },
       },
     }),
@@ -376,12 +388,24 @@ async function itemEvent(op: string, record: Item, old: Item | null, actor: stri
   const o = old?.data ?? {};
   let kind = "";
   let body = "";
+  let count = 1;
   switch (record.kind) {
-    case "msg":
+    case "msg": {
       if (!isNew) return;
       kind = "message";
-      body = d.sticker ? "🌸" : d.voice ? "🎤" : d.photo ? "📷" : String(d.text ?? "").slice(0, 120);
+      // Like messengers: one card per chat with the unread messages and how many there are.
+      const preview = (m: Record<string, unknown>) =>
+        m.sticker ? say(lang, "sticker") : m.voice ? say(lang, "voice") : m.photo ? (m.text ? `📷 ${m.text}` : say(lang, "photo")) : String(m.text ?? "").slice(0, 160);
+      const { data: read } = await db.from("couple_items").select("data").eq("couple_key", record.couple_key).eq("id", `read:${partner.id}`).maybeSingle();
+      const seen = String((read?.data as { seen?: string } | null)?.seen ?? "");
+      let query = db.from("couple_items").select("data, created_at").eq("couple_key", record.couple_key).eq("kind", "msg").eq("author", actor).order("created_at", { ascending: false }).limit(50);
+      if (seen) query = query.gt("created_at", seen);
+      const { data: unread } = await query;
+      const list = ((unread ?? []) as Array<{ data: Record<string, unknown> }>).map((row) => row.data);
+      count = Math.max(1, list.length);
+      body = (list.length ? list.slice(0, 4).reverse() : [d]).map(preview).join("\n");
       break;
+    }
     case "effect":
       if (!isNew || d.to !== partner.id) return;
       kind = "love";
@@ -450,7 +474,8 @@ async function itemEvent(op: string, record: Item, old: Item | null, actor: stri
   const urls: Record<string, string> = { message: "/together/chat", love: "/together", sharedFocus: "/focus", garden: "/together", question: "/together", pairHabit: "/together", duel: "/learn", phrase: "/learn", partnerDay: "/together" };
   const { minutes } = local(subs[0].tz || "UTC");
   if (kind !== "message" && quiet(p, minutes)) return;
-  await deliver(subs, { title: name, body, url: urls[kind], tag: kind === "message" ? "message" : `${kind}-${record.id}` });
+  const title = kind === "message" && count > 1 ? `${name} · ${say(lang, "newMessages", { count })}` : name;
+  await deliver(subs, { title, body, url: urls[kind], tag: kind === "message" ? "message" : `${kind}-${record.id}`, count });
 }
 
 /* ------------------------------------------------------------------ entry */

@@ -1,0 +1,193 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Bloom</title>
+    <style>
+      :root {
+        --ink: #2c2840;
+        --ink-2: #6b6585;
+        --mint: #36c89c;
+        --mint-600: #1fae84;
+        --line: rgba(60, 50, 90, 0.1);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: transparent; font-family: "Segoe UI", "Nunito", system-ui, sans-serif; color: var(--ink); overflow: hidden; user-select: none; }
+      .card {
+        position: relative;
+        margin: 8px;
+        padding: 12px 14px 12px 12px;
+        display: grid;
+        grid-template-columns: 46px 1fr;
+        gap: 12px;
+        border-radius: 18px;
+        background:
+          radial-gradient(220px 120px at 0% 0%, rgba(214, 243, 230, 0.9), transparent 70%),
+          radial-gradient(220px 140px at 100% 0%, rgba(255, 225, 232, 0.75), transparent 70%),
+          #fbfaff;
+        border: 1px solid rgba(255, 255, 255, 0.9);
+        box-shadow: 0 10px 28px rgba(44, 40, 64, 0.22), 0 2px 6px rgba(44, 40, 64, 0.1);
+        cursor: pointer;
+        animation: in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+      }
+      .card.out { animation: out 0.22s ease-in both; }
+      @keyframes in { from { opacity: 0; transform: translateX(40px) scale(0.96); } to { opacity: 1; transform: none; } }
+      @keyframes out { to { opacity: 0; transform: translateX(40px); } }
+      .avatar {
+        width: 46px; height: 46px; border-radius: 50%;
+        display: grid; place-items: center;
+        background: linear-gradient(140deg, #8be3c4, #36c89c 55%, #ff9fb6);
+        color: #fff; font-weight: 800; font-size: 20px;
+        box-shadow: 0 0 0 3px #fff;
+        overflow: hidden;
+      }
+      .avatar img { width: 100%; height: 100%; object-fit: cover; background: #f3f1f8; }
+      .head { display: flex; align-items: baseline; gap: 6px; padding-right: 22px; }
+      .title { font-weight: 800; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .meta { color: var(--ink-2); font-size: 12px; white-space: nowrap; }
+      .count { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--mint); color: #fff; font-size: 12px; font-weight: 800; display: none; place-items: center; }
+      .count.on { display: grid; }
+      .lines { margin-top: 3px; display: grid; gap: 2px; font-size: 13.5px; line-height: 1.35; color: var(--ink); }
+      .lines div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .lines div.old { color: var(--ink-2); }
+      .close {
+        position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; border: 0; border-radius: 50%;
+        background: rgba(60, 50, 90, 0.08); color: var(--ink-2); font-size: 13px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity 0.15s;
+      }
+      .card:hover .close { opacity: 1; }
+      .actions { grid-column: 1 / -1; display: none; gap: 8px; margin-top: 2px; }
+      .card.chat:hover .actions, .card.replying .actions { display: flex; }
+      .actions button {
+        flex: 1; border: 0; border-radius: 12px; padding: 7px 10px; font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer;
+        background: rgba(54, 200, 156, 0.14); color: var(--mint-600);
+      }
+      .actions button:hover { background: rgba(54, 200, 156, 0.24); }
+      .reply { grid-column: 1 / -1; display: none; gap: 8px; }
+      .card.replying .reply { display: flex; }
+      .card.replying .actions { display: none; }
+      .reply input {
+        flex: 1; min-width: 0; border: 1.5px solid var(--line); border-radius: 12px; padding: 8px 11px; font: inherit; font-size: 13.5px; outline: none; background: #fff; user-select: text;
+      }
+      .reply input:focus { border-color: var(--mint); box-shadow: 0 0 0 3px rgba(54, 200, 156, 0.16); }
+      .reply button { border: 0; border-radius: 12px; padding: 0 14px; background: var(--mint); color: #fff; font-size: 16px; cursor: pointer; }
+      .sent { grid-column: 1 / -1; font-size: 12.5px; color: var(--mint-600); font-weight: 700; display: none; }
+      .card.done .sent { display: block; }
+      .card.done .reply, .card.done .actions { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <div class="card" id="card">
+      <div class="avatar" id="avatar"></div>
+      <div>
+        <div class="head">
+          <span class="title" id="title"></span>
+          <span class="meta" id="meta"></span>
+          <span class="count" id="count"></span>
+        </div>
+        <div class="lines" id="lines"></div>
+      </div>
+      <div class="actions">
+        <button type="button" id="reply-btn"></button>
+        <button type="button" id="read-btn"></button>
+      </div>
+      <form class="reply" id="reply-form">
+        <input id="reply-input" autocomplete="off" maxlength="2000" />
+        <button type="submit" aria-label="send">➤</button>
+      </form>
+      <div class="sent" id="sent"></div>
+      <button class="close" id="close" type="button" aria-label="close">✕</button>
+    </div>
+    <script>
+      const note = window.bloomNote;
+      const $ = (id) => document.getElementById(id);
+      const card = $("card");
+      const words = {
+        ru: { reply: "Ответить", read: "Прочитано", placeholder: "Сообщение…", sent: "Отправлено ✓", now: "сейчас", new: (n) => `${n} новых` },
+        zh: { reply: "回复", read: "标为已读", placeholder: "消息…", sent: "已发送 ✓", now: "刚刚", new: (n) => `${n} 条新消息` },
+        en: { reply: "Reply", read: "Mark as read", placeholder: "Message…", sent: "Sent ✓", now: "now", new: (n) => `${n} new` },
+      };
+      let data = null;
+
+      function render(next, fresh) {
+        data = next;
+        const w = words[data.lang] || words.en;
+        card.classList.toggle("chat", Boolean(data.chat));
+        $("title").textContent = data.title;
+        $("meta").textContent = "· " + w.now;
+        $("count").textContent = data.count > 99 ? "99+" : String(data.count || "");
+        $("count").classList.toggle("on", (data.count || 0) > 1);
+        const lines = (data.lines && data.lines.length ? data.lines : [data.body]).slice(-4);
+        $("lines").replaceChildren(...lines.map((text, i) => {
+          const div = document.createElement("div");
+          div.textContent = text;
+          if (i < lines.length - 1) div.className = "old";
+          return div;
+        }));
+        const avatar = $("avatar");
+        if (data.chat) avatar.textContent = (data.title || "♥").trim().charAt(0).toUpperCase();
+        else avatar.replaceChildren(Object.assign(document.createElement("img"), { src: "build/icon.png" }));
+        $("reply-btn").textContent = w.reply;
+        $("read-btn").textContent = w.read;
+        $("reply-input").placeholder = w.placeholder;
+        $("sent").textContent = w.sent;
+        if (fresh && !data.silent) chime();
+        requestAnimationFrame(() => note.size(Math.ceil(card.getBoundingClientRect().height) + 16));
+      }
+
+      // A soft two-note chime in place of the Windows sound.
+      function chime() {
+        try {
+          const ctx = new AudioContext();
+          [[880, 0], [1318.5, 0.11]].forEach(([freq, at]) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.0001, ctx.currentTime + at);
+            gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + at + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + at + 0.45);
+            osc.connect(gain).connect(ctx.destination);
+            osc.start(ctx.currentTime + at);
+            osc.stop(ctx.currentTime + at + 0.5);
+          });
+          setTimeout(() => ctx.close(), 1200);
+        } catch {}
+      }
+
+      const resize = () => requestAnimationFrame(() => note.size(Math.ceil(card.getBoundingClientRect().height) + 16));
+      card.addEventListener("mouseenter", () => note.hold(true));
+      card.addEventListener("mouseleave", () => !card.classList.contains("replying") && note.hold(false));
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("button, input, form")) return;
+        note.open();
+      });
+      $("close").addEventListener("click", () => note.close());
+      $("read-btn").addEventListener("click", () => note.read());
+      $("reply-btn").addEventListener("click", () => {
+        card.classList.add("replying");
+        note.hold(true);
+        note.focus();
+        resize();
+        setTimeout(() => $("reply-input").focus(), 30);
+      });
+      $("reply-input").addEventListener("keydown", (event) => {
+        if (event.key === "Escape") note.close();
+      });
+      $("reply-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const text = $("reply-input").value.trim();
+        if (!text) return;
+        note.reply(text);
+        card.classList.remove("replying");
+        card.classList.add("done");
+        resize();
+        note.hold(false);
+      });
+      note.onData((next, fresh) => {
+        card.classList.remove("done");
+        render(next, fresh);
+      });
+      note.onLeave(() => card.classList.add("out"));
+    </script>
+  </body>
+</html>

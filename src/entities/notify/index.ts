@@ -3,6 +3,7 @@ import type { Prefs } from "@/entities/prefs";
 import { kindById, notifyKinds, type NotifyKind } from "@/shared/config/notifications";
 import { appNotification, inFront, isApp, setUnread, shell } from "@/shared/lib/native";
 import type { PushSnapshot } from "@/shared/lib/push";
+import { currentLang } from "@/shared/i18n";
 
 /* ------------------------------------------------------------------ settings */
 
@@ -162,6 +163,8 @@ export type NotifyInput = {
   urgent?: boolean;
   /** Skip the in-app banner (e.g. when the toast is already shown elsewhere). */
   silentInApp?: boolean;
+  /** Chat messages: the latest unread lines and how many there are, shown together like messengers do. */
+  chat?: { lines: string[]; count: number };
 };
 
 /** Records a notification in the centre, shows a banner in the app, or a system notification when Bloom is in the background. */
@@ -182,7 +185,8 @@ export function notify(input: NotifyInput): boolean {
     }
   } else if (isApp) {
     // On Android with Firebase the server already pushed partner events to this phone.
-    if (!(shell === "android" && pushActive && kind?.group === "partner")) appNotification({ title: input.title, body: input.body, to, tag: input.tag ?? input.kind, urgent: input.urgent });
+    if (!(shell === "android" && pushActive && kind?.group === "partner"))
+      appNotification({ title: input.title, body: input.body, to, tag: input.tag ?? input.kind, urgent: input.urgent, chat: Boolean(input.chat), lines: input.chat?.lines, count: input.chat?.count, lang: currentLang() });
   } else if (!pushActive) void systemNotification(input.title, input.body, to, input.tag ?? input.kind);
   return true;
 }

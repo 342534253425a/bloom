@@ -167,6 +167,43 @@ export function enableAndroidPush(snapshot: PushSnapshot): Promise<boolean> {
   });
 }
 
+/** Stops this device getting the signed-in account's notifications (on sign-out). */
+export async function forgetThisDevice() {
+  if (fcmToken) {
+    await supabase.from("push_subscriptions").delete().eq("endpoint", `fcm:${fcmToken}`);
+    const { PushNotifications } = await import("@capacitor/push-notifications");
+    await PushNotifications.unregister().catch(() => undefined);
+    fcmToken = null;
+  }
+  if (shell === "android") {
+    const { clearAndroidReminders } = await import("@/features/notify/android-plan");
+    await clearAndroidReminders();
+  }
+  const sub = await currentSubscription();
+  if (sub) {
+    await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+    await sub.unsubscribe().catch(() => undefined);
+  }
+}
+
+export type PushDevice = { endpoint: string; kind: "android" | "iphone" | "browser" | "windows"; updatedAt: string; current: boolean };
+
+/** Every device that gets this account's notifications. */
+export async function listPushDevices(): Promise<PushDevice[]> {
+  const { data } = await supabase.from("push_subscriptions").select("endpoint, updated_at").order("updated_at", { ascending: false });
+  const mine = fcmToken ? `fcm:${fcmToken}` : (await currentSubscription())?.endpoint;
+  return ((data ?? []) as Array<{ endpoint: string; updated_at: string }>).map((row) => ({
+    endpoint: row.endpoint,
+    kind: row.endpoint.startsWith("fcm:") ? "android" : row.endpoint.includes("push.apple.com") ? "iphone" : row.endpoint.includes("notify.windows.com") ? "windows" : "browser",
+    updatedAt: row.updated_at,
+    current: row.endpoint === mine,
+  }));
+}
+
+export async function removePushDevice(endpoint: string) {
+  await supabase.from("push_subscriptions").delete().eq("endpoint", endpoint);
+}
+
 /** Keeps the server's copy of the notification settings current. */
 export async function syncPushPrefs(snapshot: PushSnapshot) {
   if (fcmToken) {

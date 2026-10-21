@@ -1,7 +1,7 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { getItems, useCouple, useItems, type CoupleItem } from "@/entities/couple";
+import { getItems, markRead, messageOrder, sendMessage, useCouple, useItems, useUnread, type CoupleItem, type MessageData } from "@/entities/couple";
 import type { CardData, RatingData, RecordingData } from "@/entities/couple/phrasebook";
 import { readBoard } from "@/entities/habit";
 import { alreadySent, dismissBanner, kindOn, kindTime, markSent, notify, pushSnapshot, setPushActive, useBanner } from "@/entities/notify";
@@ -16,7 +16,7 @@ import { db } from "@/shared/db";
 import { addDays, dateKey, daysBetween, weekdayOf } from "@/shared/lib/date";
 import { Glyph } from "@/shared/ui/glyph";
 import { Art } from "@/shared/ui/kit";
-import { askAndroidNotifications, onOpenRequest, shell } from "@/shared/lib/native";
+import { askAndroidNotifications, dismissAppNotification, onNoteAction, onOpenRequest, shell } from "@/shared/lib/native";
 import { planAndroidReminders, plannedNatively } from "./android-plan";
 
 /** How long after its time a scheduled reminder may still fire (the app may open late). */
@@ -180,6 +180,23 @@ function hanziOf(cardId: string): string {
   return getItems<CardData>("cn").find((item) => item.id === cardId)?.data.hanzi ?? "…";
 }
 
+/** How a chat message reads in a notification. */
+export function messagePreview(data: Partial<MessageData>, t: T): string {
+  if (data.sticker) return t("notify.preview.sticker");
+  if (data.voice) return t("notify.preview.voice");
+  if (data.photo) return data.text ? `📷 ${data.text}` : t("notify.preview.photo");
+  return String(data.text ?? "").slice(0, 160);
+}
+
+/** The partner's messages this person hasn't read yet (newest last), for a grouped notification. */
+function unreadChat(userId: string, partnerId: string, t: T): { lines: string[]; count: number } {
+  const seen = getItems<{ seen?: string }>("read").find((item) => item.id === `read:${userId}`)?.data.seen ?? "";
+  const unread = getItems<MessageData>("msg")
+    .filter((message) => message.author === partnerId && message.created_at > seen)
+    .sort(messageOrder);
+  return { lines: unread.slice(-4).map((message) => messagePreview(message.data, t)), count: Math.max(1, unread.length) };
+}
+
 /** Turns what the partner does into notifications while Bloom is open. */
 function usePartnerEvents(userId: string, prefs: Prefs | undefined, t: T, path: string) {
   const couple = useCouple();
@@ -202,12 +219,13 @@ function usePartnerEvents(userId: string, prefs: Prefs | undefined, t: T, path: 
     const isNew = (item: CoupleItem) => !seen.current!.has(item.id);
     for (const item of fresh) {
       const d = item.data as Record<string, unknown>;
-      const say = (kind: string, body: string, extra: { silentInApp?: boolean; to?: string } = {}) => notify({ userId, prefs, kind, title: name, body, tag: `${kind}-${item.id}`, ...extra });
+      const say = (kind: string, body: string, extra: { silentInApp?: boolean; to?: string; chat?: { lines: string[]; count: number } } = {}) => notify({ userId, prefs, kind, title: name, body, tag: `${kind}-${item.id}`, ...extra });
       switch (item.kind) {
         case "msg":
           if (isNew(item) && item.author === partnerId) {
-            const text = d.sticker ? "🌸" : d.voice ? "🎤" : d.photo ? "📷" : String(d.text ?? "").slice(0, 80);
-            say("message", text, { silentInApp: path.startsWith("/together/chat") || path.startsWith("/watch") });
+            const chat = unreadChat(userId, partnerId, t);
+            const text = chat.lines.at(-1) ?? "";
+            say("message", text, { silentInApp: path.startsWith("/together/chat") || path.startsWith("/watch"), chat });
           }
           break;
         case "effect":
@@ -314,6 +332,25 @@ export function NotifyHost() {
 
   // A tapped notification in the Windows or Android app opens the right screen.
   useEffect(() => onOpenRequest((to) => void navigate({ to: to as "/" })), [navigate]);
+
+  // Windows notification cards: reply and "mark as read" without opening Bloom.
+  useEffect(
+    () =>
+      onNoteAction((action, payload) => {
+        if (action === "reply" && typeof payload === "string") void sendMessage(payload);
+        if (action === "reply" || action === "read") {
+          const newest = getItems<MessageData>("msg").sort(messageOrder).at(-1);
+          if (newest) void markRead(newest.created_at);
+        }
+      }),
+    [],
+  );
+
+  // Once the chat is read (here or on another device) its notification goes away.
+  const unread = useUnread();
+  useEffect(() => {
+    if (unread === 0) dismissAppNotification("chat");
+  }, [unread]);
 
   // Android: allow notifications once, then hand upcoming reminders to the system.
   const asked = useRef(false);

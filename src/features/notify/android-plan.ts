@@ -119,6 +119,15 @@ async function collect(userId: string, prefs: Prefs, t: T): Promise<Planned[]> {
   return out.filter((item) => item.at.getTime() > now + 15_000 && (item.urgent || !inQuiet(prefs, item.at))).sort((a, b) => a.at.getTime() - b.at.getTime()).slice(0, 60);
 }
 
+/** Removes every upcoming Bloom reminder from Android (on sign-out). */
+export async function clearAndroidReminders() {
+  if (shell !== "android") return;
+  const { LocalNotifications } = await import("@capacitor/local-notifications");
+  const pending = await LocalNotifications.getPending();
+  if (pending.notifications.length) await LocalNotifications.cancel({ notifications: pending.notifications.map((item) => ({ id: item.id })) });
+  localStorage.removeItem(STORE);
+}
+
 let running: Promise<void> | null = null;
 
 /** Replaces Android's list of upcoming Bloom reminders with a fresh one. */

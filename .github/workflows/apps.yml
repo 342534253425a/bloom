@@ -70,7 +70,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: desktop/dist/Bloom-Setup.exe
+          path: |
+            desktop/dist/Bloom-Setup.exe
+            desktop/dist/Bloom-Setup.exe.blockmap
+            desktop/dist/latest.yml
 
   release:
     needs: [android, windows]
@@ -83,7 +86,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "apps-${{ github.run_number }}" Bloom.apk Bloom-Setup.exe \
+          gh release create "apps-${{ github.run_number }}" Bloom.apk Bloom-Setup.exe Bloom-Setup.exe.blockmap latest.yml \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
             --title "Bloom apps 1.0.${{ github.run_number }}" \

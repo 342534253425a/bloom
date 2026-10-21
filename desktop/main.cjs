@@ -3,7 +3,7 @@
  * it lives in the tray when closed, starts with Windows, shows Windows notifications and can share
  * the screen with sound in the cinema. The page itself updates with every site deploy.
  */
-const { app, BrowserWindow, Menu, Notification, Tray, desktopCapturer, ipcMain, nativeImage, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, Tray, desktopCapturer, ipcMain, nativeImage, screen, session, shell } = require("electron");
 const path = require("node:path");
 
 const SITE = process.env.BLOOM_URL || "https://bloom-love.online/";
@@ -98,7 +98,7 @@ function createWindow() {
     win.hide();
     if (!shown.has("tray-hint")) {
       shown.add("tray-hint");
-      toast("Bloom", "Bloom остаётся в трее и пришлёт уведомления · Bloom keeps running in the tray", "/");
+      showNote({ key: "tray", title: "Bloom", body: "Bloom остаётся в трее и пришлёт уведомления · Bloom keeps running in the tray", to: "/", lang: "ru", silent: true });
     }
   });
   win.on("focus", () => win.flashFrame(false));
@@ -129,15 +129,125 @@ function createWindow() {
   void win.loadURL(SITE);
 }
 
-function toast(title, body, to, urgent) {
-  if (!Notification.isSupported()) return;
-  const note = new Notification({ title, body, icon: icon(128), silent: false, urgency: urgent ? "critical" : "normal" });
-  note.on("click", () => {
-    show();
-    if (to) win?.webContents.send("bloom:link", `${PROTOCOL}://open?to=${encodeURIComponent(to)}`);
-  });
-  note.show();
+/* ------------------------------------------------------------------ notification cards (like Telegram) */
+
+const NOTE_WIDTH = 376;
+const NOTE_GAP = 2;
+const MAX_NOTES = 4;
+/** @type {Array<{ key: string; win: BrowserWindow; height: number; data: any; timer: NodeJS.Timeout | null; held: boolean }>} */
+const notes = [];
+
+function placeNotes() {
+  const area = screen.getPrimaryDisplay().workArea;
+  let bottom = area.y + area.height - 8;
+  for (const note of [...notes].reverse()) {
+    bottom -= note.height;
+    note.win.setBounds({ x: area.x + area.width - NOTE_WIDTH - 8, y: Math.round(bottom), width: NOTE_WIDTH, height: note.height });
+    bottom -= NOTE_GAP;
+  }
 }
+
+function armNote(note) {
+  if (note.timer) clearTimeout(note.timer);
+  note.timer = note.held ? null : setTimeout(() => closeNote(note), note.data.chat ? 9000 : 6500);
+}
+
+function closeNote(note) {
+  const index = notes.indexOf(note);
+  if (index < 0) return;
+  notes.splice(index, 1);
+  if (note.timer) clearTimeout(note.timer);
+  if (!note.win.isDestroyed()) {
+    note.win.webContents.send("note:leave");
+    setTimeout(() => !note.win.isDestroyed() && note.win.destroy(), 230);
+  }
+  placeNotes();
+}
+
+/** Shows a Bloom card in the corner; a card with the same key (one chat) is updated instead of stacked. */
+function showNote(data) {
+  const existing = notes.find((note) => note.key === data.key);
+  if (existing) {
+    existing.data = data;
+    existing.win.webContents.send("note:data", data, true);
+    // Bring the updated chat to the bottom like a new one.
+    notes.splice(notes.indexOf(existing), 1);
+    notes.push(existing);
+    placeNotes();
+    armNote(existing);
+    return;
+  }
+  while (notes.length >= MAX_NOTES) closeNote(notes[0]);
+  const noteWin = new BrowserWindow({
+    width: NOTE_WIDTH,
+    height: 120,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    focusable: true,
+    hasShadow: false,
+    backgroundColor: "#00000000",
+    webPreferences: { preload: path.join(__dirname, "note-preload.cjs"), contextIsolation: true, sandbox: true, backgroundThrottling: false },
+  });
+  noteWin.setAlwaysOnTop(true, "screen-saver");
+  const note = { key: data.key, win: noteWin, height: 120, data, timer: null, held: false };
+  notes.push(note);
+  placeNotes();
+  noteWin.webContents.once("did-finish-load", () => {
+    noteWin.webContents.send("note:data", data, true);
+    noteWin.showInactive();
+    armNote(note);
+  });
+  void noteWin.loadFile(path.join(__dirname, "note.html"));
+}
+
+function noteOf(event) {
+  return notes.find((note) => !note.win.isDestroyed() && note.win.webContents === event.sender);
+}
+
+ipcMain.on("note:size", (event, height) => {
+  const note = noteOf(event);
+  if (!note || !height) return;
+  note.height = Math.min(320, Math.max(70, height));
+  placeNotes();
+});
+ipcMain.on("note:hold", (event, on) => {
+  const note = noteOf(event);
+  if (!note) return;
+  note.held = on;
+  armNote(note);
+});
+ipcMain.on("note:focus", (event) => noteOf(event)?.win.focus());
+ipcMain.on("note:open", (event) => {
+  const note = noteOf(event);
+  if (!note) return;
+  show();
+  if (note.data.to) win?.webContents.send("bloom:link", `${PROTOCOL}://open?to=${encodeURIComponent(note.data.to)}`);
+  closeNote(note);
+});
+ipcMain.on("note:close", (event) => {
+  const note = noteOf(event);
+  if (note) closeNote(note);
+});
+ipcMain.on("note:read", (event) => {
+  const note = noteOf(event);
+  if (!note) return;
+  win?.webContents.send("bloom:action", "read", null);
+  closeNote(note);
+});
+ipcMain.on("note:reply", (event, text) => {
+  const note = noteOf(event);
+  if (!note) return;
+  win?.webContents.send("bloom:action", "reply", String(text).slice(0, 2000));
+  note.held = false;
+  setTimeout(() => closeNote(note), 1400);
+});
 
 function setUnread(count) {
   if (!win) return;
@@ -189,8 +299,22 @@ const fromBloom = (event) => {
 
 ipcMain.on("bloom:notify", (event, input) => {
   if (!fromBloom(event) || !input) return;
-  toast(String(input.title ?? "Bloom"), String(input.body ?? ""), String(input.to ?? "/"), Boolean(input.urgent));
+  const lines = Array.isArray(input.lines) ? input.lines.map(String).slice(-4) : [];
+  showNote({
+    key: input.chat ? "chat" : String(input.tag ?? Math.random()),
+    title: String(input.title ?? "Bloom"),
+    body: String(input.body ?? ""),
+    lines,
+    count: Number(input.count) || 0,
+    chat: Boolean(input.chat),
+    to: String(input.to ?? "/"),
+    lang: String(input.lang ?? "ru"),
+  });
   if (win && !win.isFocused()) win.flashFrame(true);
+});
+ipcMain.on("bloom:dismiss", (event, key) => {
+  if (!fromBloom(event)) return;
+  for (const note of notes.filter((item) => item.key === String(key))) closeNote(note);
 });
 ipcMain.on("bloom:unread", (event, count) => fromBloom(event) && setUnread(Number(count) || 0));
 ipcMain.on("bloom:open-external", (event, url) => {
@@ -217,8 +341,22 @@ ipcMain.handle("bloom:take-link", (event) => {
 
 /* ------------------------------------------------------------------ start */
 
+/** New versions of this app come from the project's GitHub releases and install on the next restart. */
+function checkForUpdates() {
+  if (process.defaultApp || process.env.BLOOM_URL) return;
+  try {
+    const { autoUpdater } = require("electron-updater");
+    autoUpdater.autoInstallOnAppQuit = true;
+    void autoUpdater.checkForUpdates().catch(() => undefined);
+  } catch {
+    /* updater unavailable */
+  }
+}
+
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
+  checkForUpdates();
+  setInterval(checkForUpdates, 6 * 3600_000);
 
   // The cinema shares the whole screen with the computer's sound (like Discord).
   session.defaultSession.setDisplayMediaRequestHandler(

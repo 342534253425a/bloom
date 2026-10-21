@@ -9,6 +9,7 @@ import { createId } from "@/shared/lib/id";
 import { db, type Tone } from "@/shared/db";
 import { i18n } from "@/shared/i18n";
 import { AUTH_CALLBACK, isApp, onAuthCallback, openOutside } from "@/shared/lib/native";
+import { forgetThisDevice } from "@/shared/lib/push";
 
 function toUser(user: AuthUser): PublicUser {
   const meta = user.user_metadata ?? {};
@@ -257,9 +258,12 @@ export async function renameAccount(name: string): Promise<void> {
 }
 
 export async function logoutAccount(): Promise<void> {
+  // This device stops getting the account's notifications (needs the session, so before signing out).
+  await Promise.race([forgetThisDevice().catch(() => undefined), new Promise((resolve) => window.setTimeout(resolve, 4000))]);
   stopSync();
   disconnectCouple();
-  await supabase.auth.signOut();
+  // Only this device: signing out on the phone must not sign the computer out too.
+  await supabase.auth.signOut({ scope: "local" });
 }
 
 /** The session Supabase keeps in localStorage, read without any network call. */

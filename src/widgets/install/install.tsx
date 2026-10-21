@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { dismissInstall, installDismissed, promptInstall, useInstall, type Platform } from "@/shared/lib/install";
+import { dismissInstall, installDismissed, useInstall, type Platform } from "@/shared/lib/install";
 import { Tabs } from "@/shared/ui/bloom";
 import { Glyph, type GlyphName } from "@/shared/ui/glyph";
-import { Art, toast } from "@/shared/ui/kit";
+import { Art } from "@/shared/ui/kit";
 import { Sheet } from "@/shared/ui/sheet";
 import { DOWNLOADS } from "@/shared/lib/native";
 
@@ -14,25 +14,13 @@ function guideFor(platform: Platform): Guide {
   return platform;
 }
 
-const steps: Record<Guide, Array<{ glyph: GlyphName; key: string }>> = {
-  ios: [
+/** Adding Bloom to the iPhone home screen (Android and Windows have real apps to download). */
+const iosSteps: Array<{ glyph: GlyphName; key: string }> = [
     { glyph: "globe", key: "ios1" },
     { glyph: "share", key: "ios2" },
     { glyph: "addSquare", key: "ios3" },
     { glyph: "check", key: "ios4" },
-  ],
-  android: [
-    { glyph: "globe", key: "android1" },
-    { glyph: "more", key: "android2" },
-    { glyph: "phone", key: "android3" },
-    { glyph: "check", key: "android4" },
-  ],
-  desktop: [
-    { glyph: "globe", key: "desktop1" },
-    { glyph: "download", key: "desktop2" },
-    { glyph: "check", key: "desktop3" },
-  ],
-};
+  ];
 
 /** Native install where the browser allows it, otherwise clear steps for iPhone, Android or a computer. */
 export function InstallGuide({ onDone }: { onDone?: () => void }) {
@@ -62,59 +50,42 @@ export function InstallGuide({ onDone }: { onDone?: () => void }) {
         </div>
       </div>
 
-      {install.canPrompt ? (
-        <button
-          type="button"
-          className="btn is-block"
-          onClick={async () => {
-            const ok = await promptInstall();
-            if (ok) {
-              toast(t("install.thanks"), "c-arms-up");
-              onDone?.();
-            }
-          }}
-        >
-          <Glyph name="download" size={20} stroke={2.4} />
-          {t("install.button")}
-        </button>
-      ) : null}
-
-      {install.platform === "ios-other" ? (
-        <p className="install-warn">
-          <Glyph name="sparkle" size={16} />
-          {t("install.openSafari")}
-        </p>
-      ) : null}
-
       <Tabs
         value={guide}
         onChange={setGuide}
         options={[
           { id: "ios", label: "iPhone" },
           { id: "android", label: "Android" },
-          { id: "desktop", label: t("install.computer") },
+          { id: "desktop", label: "Windows" },
         ]}
       />
-      {guide !== "ios" ? (
-        <a className="btn is-block install-download" href={guide === "android" ? DOWNLOADS.android : DOWNLOADS.windows} target="_blank" rel="noopener">
+      {guide === "ios" ? (
+        <>
+          {install.platform === "ios-other" ? (
+            <p className="install-warn">
+              <Glyph name="sparkle" size={16} />
+              {t("install.openSafari")}
+            </p>
+          ) : null}
+          <ol className="install-steps">
+            {iosSteps.map((step, index) => (
+              <li key={step.key}>
+                <span className="install-num">{index + 1}</span>
+                <span className="install-text">{t(`install.${step.key}`)}</span>
+                <span className="install-glyph">
+                  <Glyph name={step.glyph} size={20} stroke={2.2} />
+                </span>
+              </li>
+            ))}
+          </ol>
+          <p className="tiny center">{t("install.note")}</p>
+        </>
+      ) : (
+        <a className="btn is-block install-download" href={guide === "android" ? DOWNLOADS.android : DOWNLOADS.windows} target="_blank" rel="noopener" onClick={() => onDone?.()}>
           <Glyph name="download" size={20} stroke={2.4} />
           {guide === "android" ? t("install.getApk") : t("install.getWindows")}
         </a>
-      ) : null}
-      {guide !== "ios" ? <p className="tiny center">{guide === "android" ? t("install.apkNote") : t("install.windowsNote")}</p> : null}
-      {guide !== "ios" ? <p className="tiny install-or">{t("install.orBrowser")}</p> : null}
-      <ol className="install-steps">
-        {steps[guide].map((step, index) => (
-          <li key={step.key}>
-            <span className="install-num">{index + 1}</span>
-            <span className="install-text">{t(`install.${step.key}`)}</span>
-            <span className="install-glyph">
-              <Glyph name={step.glyph} size={20} stroke={2.2} />
-            </span>
-          </li>
-        ))}
-      </ol>
-      <p className="tiny center">{t("install.note")}</p>
+      )}
     </div>
   );
 }

@@ -19,11 +19,17 @@ export const DOWNLOADS = {
   android: "https://github.com/342534253425a/bloom/releases/latest/download/Bloom.apk",
 };
 
+/** A notification as the apps show it; chats carry the latest unread lines and their count. */
+export type AppNote = { title: string; body: string; to: string; tag: string; urgent?: boolean; chat?: boolean; lines?: string[]; count?: number; lang?: string };
+
 /** What the Windows app's preload script (desktop/preload.cjs) exposes. */
 type DesktopBridge = {
   version: string;
   openExternal: (url: string) => void;
-  notify: (input: { title: string; body: string; to: string; tag: string; urgent?: boolean }) => void;
+  notify: (input: AppNote) => void;
+  /** Older installs (version "1") don't have these. */
+  dismiss?: (key: string) => void;
+  onAction?: (listener: (action: string, payload: unknown) => void) => () => void;
   setUnread: (count: number) => void;
   setTitleBar: (colors: { color: string; symbol: string }) => void;
   getAutostart: () => Promise<boolean>;
@@ -104,20 +110,47 @@ export function numericId(tag: string): number {
 }
 
 /** Shows a system notification from the app shell. Returns false on the web (the page handles it). */
-export function appNotification(input: { title: string; body: string; to: string; tag: string; urgent?: boolean }): boolean {
+export function appNotification(input: AppNote): boolean {
   if (desktop) {
     desktop.notify(input);
     return true;
   }
   if (shell === "android") {
+    const lines = input.lines ?? [];
     void import("@capacitor/local-notifications").then(({ LocalNotifications }) =>
       LocalNotifications.schedule({
-        notifications: [{ id: numericId(`now:${input.tag}`), title: input.title, body: input.body, extra: { to: input.to }, smallIcon: "ic_stat_bloom", channelId: "bloom" }],
+        notifications: [
+          {
+            // One card per chat that grows, like messengers do.
+            id: numericId(input.chat ? "now:chat" : `now:${input.tag}`),
+            title: input.title,
+            body: lines.at(-1) ?? input.body,
+            largeBody: lines.length > 1 ? lines.join("\n") : undefined,
+            inboxList: lines.length > 1 ? lines.slice(-5) : undefined,
+            summaryText: input.chat && (input.count ?? 0) > 1 ? String(input.count) : undefined,
+            group: input.chat ? "bloom-chat" : undefined,
+            extra: { to: input.to },
+            smallIcon: "ic_stat_bloom",
+            channelId: "bloom",
+          },
+        ],
       }),
     );
     return true;
   }
   return false;
+}
+
+/** Closes a shown notification, e.g. the chat card once the messages are read. */
+export function dismissAppNotification(key: "chat") {
+  desktop?.dismiss?.(key);
+  if (shell === "android")
+    void import("@capacitor/local-notifications").then(({ LocalNotifications }) => LocalNotifications.cancel({ notifications: [{ id: numericId(`now:${key}`) }] }).catch(() => undefined));
+}
+
+/** Reply and "mark as read" from a notification card on Windows. */
+export function onNoteAction(listener: (action: string, payload: unknown) => void): () => void {
+  return desktop?.onAction?.(listener) ?? (() => {});
 }
 
 /** True when the person is looking at Bloom right now (on Windows a window behind others doesn't count). */
@@ -181,4 +214,24 @@ export async function startShell() {
   await LocalNotifications.createChannel({ id: "bloom", name: "Bloom", importance: 4, visibility: 1, vibration: true, lights: true, lightColor: "#5ccfa0" }).catch(() => undefined);
   const { StatusBar, Style } = await import("@capacitor/status-bar");
   void StatusBar.setStyle({ style: Style.Light }).catch(() => undefined);
+  void offerAndroidUpdate(App);
+}
+
+/** The page updates by itself; the app shell only when a newer APK is published. Asks at most once a day. */
+async function offerAndroidUpdate(App: typeof import("@capacitor/app").App) {
+  try {
+    const key = "bloom.updateAsked";
+    if (Number(localStorage.getItem(key) ?? 0) > Date.now() - 86_400_000) return;
+    const [{ build }, release] = await Promise.all([
+      App.getInfo(),
+      fetch("https://api.github.com/repos/342534253425a/bloom/releases/latest").then((res) => res.json() as Promise<{ tag_name?: string }>),
+    ]);
+    const latest = Number(release.tag_name?.replace("apps-", "") ?? 0);
+    if (!latest || latest <= Number(build)) return;
+    localStorage.setItem(key, String(Date.now()));
+    const ru = /^ru/.test(navigator.language);
+    if (window.confirm(ru ? "Есть новая версия приложения Bloom. Скачать?" : "A new version of the Bloom app is available. Download it?")) await openOutside(DOWNLOADS.android);
+  } catch {
+    /* offline or GitHub unreachable */
+  }
 }

@@ -25,6 +25,8 @@
     "files": [
       "main.cjs",
       "preload.cjs",
+      "note.html",
+      "note-preload.cjs",
       "offline.html",
       "build/icon.png",
       "build/dot.png"
@@ -48,6 +50,17 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Bloom"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "342534253425a",
+        "repo": "bloom",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

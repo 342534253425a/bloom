@@ -1200,17 +1200,6 @@ export const strings = {
     short: ["Install app", "Установить", "安装应用"],
     getApk: ["Download the Android app (APK)", "Скачать приложение для Android (APK)", "下载 Android 应用（APK）"],
     getWindows: ["Download the Windows app", "Скачать приложение для Windows", "下载 Windows 应用"],
-    apkNote: [
-      "Best option: notifications and reminders even when Bloom is closed. Android will ask to allow installing from this source once.",
-      "Лучший вариант: уведомления и напоминания, даже когда Bloom закрыт. Android один раз попросит разрешить установку из этого источника.",
-      "推荐：即使关闭 Bloom 也能收到通知和提醒。Android 会请求一次允许从此来源安装。",
-    ],
-    windowsNote: [
-      "Lives in the tray, starts with Windows and shows notifications like Telegram. If Windows warns about an unknown publisher: More info → Run anyway.",
-      "Живёт в трее, запускается вместе с Windows и показывает уведомления, как Telegram. Если Windows предупредит о неизвестном издателе: «Подробнее» → «Выполнить в любом случае».",
-      "常驻托盘、随 Windows 启动，像 Telegram 一样显示通知。如果 Windows 提示未知发布者：点“更多信息”→“仍要运行”。",
-    ],
-    orBrowser: ["Or add the web version:", "Или добавить веб-версию:", "或添加网页版："],
     button: ["Install Bloom on this device", "Установить Bloom на устройство", "在本设备安装 Bloom"],
     why: ["Opens from your home screen like a normal app — full screen, fast and offline.", "Открывается с главного экрана как обычное приложение — на весь экран, быстро и без интернета.", "像普通应用一样从主屏幕打开：全屏、快速、可离线使用。"],
     bannerTitle: ["Put Bloom on your home screen", "Добавь Bloom на главный экран", "把 Bloom 添加到主屏幕"],
