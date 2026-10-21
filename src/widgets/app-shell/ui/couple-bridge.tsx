@@ -2,6 +2,7 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { syncLanguage } from "@/features/authenticate";
 import { useTranslation } from "react-i18next";
 import { useEffect, useRef } from "react";
+import { connectContacts } from "@/entities/chat";
 import { connectCouple, markAway, publishDay, setActivity, useCouple, useItems, type Activity } from "@/entities/couple";
 import { db } from "@/shared/db";
 import { useDay } from "@/entities/day";
@@ -73,6 +74,11 @@ export function CoupleBridge() {
   useEffect(() => {
     void connectCouple(user.id, user.displayName);
   }, [user.id, user.displayName]);
+
+  // Friends and family: their chats and calls stay live too.
+  useEffect(() => {
+    void connectContacts(user.id);
+  }, [user.id]);
 
   // Emails (codes, resets) are written in the app language saved on the account.
   const { i18n } = useTranslation();

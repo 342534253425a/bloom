@@ -491,6 +491,46 @@ async function itemEvent(op: string, record: Item, old: Item | null, actor: stri
   await deliver(subs, { title, body, url: urls[kind], tag: kind === "message" ? "message" : `${kind}-${record.id}`, count });
 }
 
+/* ------------------------------------------------------------------ friends and family */
+
+type ChatRow = { chat_key: string; id: string; kind: string; author: string; data: Record<string, unknown>; created_at: string };
+
+/** A message or a call from a friend / family member: pushed to the other person of that chat. */
+async function chatEvent(op: string, record: ChatRow, actor: string | null) {
+  if (!actor || op !== "INSERT") return;
+  const { data: members } = await db.from("contacts").select("owner").eq("chat_key", record.chat_key);
+  const to = ((members ?? []) as Array<{ owner: string }>).map((row) => row.owner).find((id) => id !== actor);
+  if (!to) return;
+  const { data: author } = await db.from("profiles").select("name").eq("id", actor).maybeSingle();
+  const name = (author as { name?: string } | null)?.name || "♥";
+  const subs = await subsOf(to);
+  if (!subs.length) return;
+  const p = subs[0].prefs ?? {};
+  const lang = p.lang ?? subs[0].lang ?? "en";
+  const d = record.data ?? {};
+  const url = `/people/${actor}`;
+  if (record.kind === "call") {
+    if (d.state !== "ringing" || p.on?.call === false) return;
+    await deliver(subs, { title: name, body: say(lang, d.video ? "callVideo" : "callAudio"), url, tag: `call-${record.id}` });
+    return;
+  }
+  if (record.kind !== "msg" || p.on?.message === false) return;
+  const call = d.call as { status?: string } | undefined;
+  if (call?.status === "ended") return;
+  const preview = (m: Record<string, unknown>) =>
+    m.call ? say(lang, "missedCall") : m.sticker ? say(lang, "sticker") : m.voice ? say(lang, "voice") : m.photo ? (m.text ? `📷 ${m.text}` : say(lang, "photo")) : m.video ? `🎬 ${m.text ?? ""}` : String(m.text ?? "").slice(0, 160);
+  const { data: read } = await db.from("chat_items").select("data").eq("chat_key", record.chat_key).eq("id", `read:${to}`).maybeSingle();
+  const seen = String((read?.data as { seen?: string } | null)?.seen ?? "");
+  let query = db.from("chat_items").select("data, created_at").eq("chat_key", record.chat_key).eq("kind", "msg").eq("author", actor).order("created_at", { ascending: false }).limit(50);
+  if (seen) query = query.gt("created_at", seen);
+  const { data: unread } = await query;
+  const list = ((unread ?? []) as Array<{ data: Record<string, unknown> }>).map((row) => row.data);
+  const count = Math.max(1, list.length);
+  const body = (list.length ? list.slice(0, 4).reverse() : [d]).map(preview).join("\n");
+  const title = count > 1 ? `${name} · ${say(lang, "newMessages", { count })}` : name;
+  await deliver(subs, { title, body, url, tag: `chat-${record.chat_key}`, count });
+}
+
 /* ------------------------------------------------------------------ call relay */
 
 /**
@@ -549,6 +589,7 @@ Deno.serve(async (req) => {
       return Response.json({ sent: subs.length }, { headers: cors });
     }
     if (body.type === "item") await itemEvent(body.op, body.record, body.old ?? null, body.actor ?? null);
+    else if (body.type === "chat") await chatEvent(body.op, body.record, body.actor ?? null);
     else if (body.type === "tick") await tick();
     return Response.json({ ok: true }, { headers: cors });
   } catch (error) {

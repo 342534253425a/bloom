@@ -16,6 +16,8 @@ import { db } from "@/shared/db";
 import { addDays, dateKey, daysBetween, weekdayOf } from "@/shared/lib/date";
 import { askAndroidNotifications, dismissAppNotification, onNoteAction, onOpenRequest, setUnread, shell } from "@/shared/lib/native";
 import { planAndroidReminders, plannedNatively } from "./android-plan";
+import { contactByKey, onChatSignal } from "@/entities/chat";
+import { preview as chatPreview } from "@/features/couple/chat-thread";
 
 /** How long after its time a scheduled reminder may still fire (the app may open late). */
 const WINDOW_MIN = 120;
@@ -317,6 +319,21 @@ export function NotifyHost() {
   const partnerName = couple.partner?.name || "♥";
 
   usePartnerEvents(user.id, prefs, t, path);
+
+  // Friends and family: a new message shows a notification when Bloom is in the background.
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
+  useEffect(
+    () =>
+      onChatSignal("item:msg", (chatKey, row) => {
+        const message = row as unknown as CoupleItem<MessageData>;
+        const contact = contactByKey(chatKey);
+        const current = prefsRef.current;
+        if (!contact || !current || message.author === user.id || message.data?.call?.status === "ended") return;
+        notify({ userId: user.id, prefs: current, kind: "message", title: contact.name, body: chatPreview(t, message), to: `/people/${contact.id}`, tag: `chat-${chatKey}` });
+      }),
+    [user.id, t],
+  );
 
   // Background delivery: know whether this device gets pushes and keep the server's settings current.
   // If notifications are already allowed, (re)subscribe this device without asking again.

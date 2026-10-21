@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { setActivity, signal, useCouple, useItem, useSignal, type TurnData } from "@/entities/couple";
 import { ChatThread } from "@/features/couple/chat-thread";
+import { PARTNER, useConversation } from "@/entities/chat";
 import { haptic } from "@/shared/lib/motion/fx";
 import {
   ShareHost,
@@ -54,6 +55,7 @@ export function WatchPage() {
   const [chatOpen, setChatOpen] = useState(false);
   const [noAudio, setNoAudio] = useState(false);
   const [sound, setSound] = useState<ScreenSound | null>(null);
+  const partnerChat = useConversation(PARTNER);
   const [connectedAt, setConnectedAt] = useState<number | null>(null);
   const [, setTick] = useState(0);
   const [syncFile, setSyncFile] = useState<string | null>(null);
@@ -613,7 +615,7 @@ export function WatchPage() {
 
         {chatOpen ? (
           <aside className="cinema-chat">
-            <ChatThread compact />
+            {partnerChat ? <ChatThread compact conv={partnerChat} /> : null}
           </aside>
         ) : null}
       </div>

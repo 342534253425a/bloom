@@ -5,7 +5,7 @@ import { savePrefs, usePrefs } from "@/entities/prefs";
 import { useProgress, plantStages } from "@/entities/progress";
 import { useUser } from "@/entities/session";
 import { hasPasscode } from "@/entities/space";
-import { spaces } from "@/shared/config/spaces";
+import { contactConversation, unreadIn, useContacts } from "@/entities/chat";
 import { requestIntent, type Intent } from "@/shared/lib/intent";
 import { haptic } from "@/shared/lib/motion/fx";
 import { Glyph, type GlyphName } from "@/shared/ui/glyph";
@@ -25,14 +25,14 @@ import { InstallButton } from "@/widgets/install/install";
 
 type NavItem = { to: string; label: string; art: string; tone: Tone };
 
-type DockTo = "/" | "/together/chat" | "/together" | "/spaces";
+type DockTo = "/" | "/together/chat" | "/together" | "/people";
 
-/** Phone bottom bar: the partner is one tap away, like a messenger. Habits and tasks live in Spaces. */
+/** Phone bottom bar: the partner is one tap away, then everyone else (People). Everything else is in "All" on the home screen. */
 const dockTabs: Array<{ to: DockTo; key: string; glyph: GlyphName }> = [
   { to: "/", key: "today", glyph: "home" },
   { to: "/together/chat", key: "chat", glyph: "message" },
   { to: "/together", key: "pair", glyph: "heart" },
-  { to: "/spaces", key: "spaces", glyph: "grid" },
+  { to: "/people", key: "people", glyph: "user" },
 ];
 
 function dockActive(path: string, to: DockTo) {
@@ -101,6 +101,7 @@ export function AppShell() {
       title: t("nav.care"),
       items: [
         { to: "/together", label: t("couple.title"), art: "c-pair-hearts", tone: "pink" },
+        { to: "/people", label: t("people.title"), art: "c-wave", tone: "sky" },
         { to: "/learn", label: t("learn.title"), art: "c-read", tone: "sun" },
         { to: "/privacy", label: t("nav.privacy"), art: "i-shield", tone: "sky" },
         { to: "/settings", label: t("nav.settings"), art: "o-gear", tone: "lav" },
@@ -139,7 +140,7 @@ export function AppShell() {
                 <Link key={item.to} to={item.to as "/"} className={`side-link ${isActive(path, item.to) ? "is-on" : ""}`}>
                   <Tile name={item.art} tone={item.tone} size={32} />
                   <span>{item.label}</span>
-                  {item.to === "/together" ? <UnreadDot /> : null}
+                  {item.to === "/together" ? <UnreadDot /> : item.to === "/people" ? <PeopleDot /> : null}
                 </Link>
               ))}
             </div>
@@ -179,7 +180,7 @@ export function AppShell() {
             to={tab.to}
             glyph={tab.glyph}
             label={t(`nav.${tab.key}`)}
-            active={dockActive(path, tab.to) || (tab.to === "/spaces" && !dockTabs.some((other) => other.to !== "/" && other.to !== "/spaces" && isActive(path, other.to)) && spaces.some((space) => isActive(path, space.to)))}
+            active={dockActive(path, tab.to)}
           />
         ))}
       </nav>
@@ -243,11 +244,18 @@ function DockLink({ to, glyph, label, active }: { to: DockTo; glyph: GlyphName; 
     <Link to={to} className={`dock-link ${active ? "is-active" : ""}`} aria-current={active ? "page" : undefined} onClick={() => haptic(5)}>
       <span className="dock-icon">
         <Glyph name={glyph} size={24} stroke={active ? 2.3 : 1.9} />
-        {to === "/together/chat" ? <UnreadDot /> : null}
+        {to === "/together/chat" ? <UnreadDot /> : to === "/people" ? <PeopleDot /> : null}
       </span>
       <span className="dock-label">{label}</span>
     </Link>
   );
+}
+
+/** Unread messages from friends and family. */
+function PeopleDot() {
+  const contacts = useContacts();
+  const unread = contacts.list.reduce((sum, contact) => sum + unreadIn(contactConversation(contact)), 0);
+  return unread ? <span className="unread-badge is-small">{unread}</span> : null;
 }
 
 function UnreadDot() {

@@ -20,6 +20,7 @@ import {
   type CallState,
 } from "@/entities/call";
 import { useCouple, useItems } from "@/entities/couple";
+import { useContacts, type Conversation } from "@/entities/chat";
 import { desktop, inFront, onNoteAction } from "@/shared/lib/native";
 import { canShareScreenInCall, listDevices, type Devices } from "@/shared/lib/webrtc/call";
 import { Art, toast } from "@/shared/ui/kit";
@@ -184,13 +185,14 @@ export function CallHost() {
   const call = useCall();
   const couple = useCouple();
   const items = useItems("call");
-  const name = couple.partner?.name || "♥";
+  const name = call.peer?.name || couple.partner?.name || "♥";
+  const contacts = useContacts();
   const [sink, setSink] = useState("");
 
   useEffect(() => listenForCalls(), []);
   useEffect(() => {
-    if (couple.partner) checkRinging();
-  }, [items, couple.partner]);
+    checkRinging();
+  }, [items, couple.partner, contacts.version]);
 
   // Ringing sounds.
   useEffect(() => {
@@ -523,11 +525,11 @@ function MiniCall({ call, name }: { call: CallState; name: string }) {
 
 /* ------------------------------------------------------------------ start buttons */
 
-/** The call buttons in the chat header. */
-export function CallButtons() {
+/** The call buttons in a chat header (the partner when no chat is given). */
+export function CallButtons({ conv }: { conv?: Conversation | null }) {
   const { t } = useTranslation();
   const start = async (video: boolean) => {
-    const error = await startCall(video);
+    const error = await startCall(video, conv);
     if (error === "media") toast(t("call.media"), "c-frown");
     if (error === "not-paired") toast(t("call.notPaired"), "c-frown");
   };

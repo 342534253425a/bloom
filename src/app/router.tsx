@@ -18,7 +18,8 @@ import { SpacesPage } from "@/pages/spaces/spaces-page";
 import { StatsPage } from "@/pages/stats/stats-page";
 import { TasksPage } from "@/pages/tasks/tasks-page";
 import { TogetherPage } from "@/pages/together/together-page";
-import { ChatPage } from "@/pages/together/chat-page";
+import { ChatPage, PersonChatPage } from "@/pages/together/chat-page";
+import { PeoplePage } from "@/pages/people/people-page";
 import { WatchPage } from "@/pages/together/watch-page";
 import { LearnPage } from "@/pages/learn/learn-page";
 import { NotificationsPage } from "@/pages/notifications/notifications-page";
@@ -97,6 +98,8 @@ const routeTree = rootRoute.addChildren([
     page("/stats", StatsPage),
     page("/together", TogetherPage),
     page("/together/chat", ChatPage),
+    page("/people", PeoplePage),
+    page("/people/$personId", PersonChatPage),
     page("/watch", WatchPage),
     page("/learn", LearnPage),
     page("/notifications", NotificationsPage),

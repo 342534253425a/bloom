@@ -1,26 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { inFront } from "@/shared/lib/native";
-import {
-  deleteMessage,
-  editMessage,
-  getCouple,
-  markRead,
-  messageOrder,
-  myId,
-  sendMessage,
-  signal,
-  toggleReaction,
-  togglePin,
-  useCouple,
-  useItem,
-  useItems,
-  useSignal,
-  type CoupleItem,
-  type MessageData,
-} from "@/entities/couple";
+import { inFront, openOutside } from "@/shared/lib/native";
+import { myId, type CoupleItem, type MessageData } from "@/entities/couple";
+import { allConversations, edit, forward, messageOrder, pin, react, read, removeMessage, send as sendTo, useContacts, type Conversation } from "@/entities/chat";
 import { localeOf } from "@/shared/i18n";
-import { compressImage, fileUrl, uploadCoupleFile } from "@/shared/lib/media";
+import { topicIcon, topics } from "@/shared/config/topics";
+import { embedUrl, findLinks, mainLink, type LinkInfo } from "@/shared/lib/links";
+import { compressImage, fileUrl, MAX_FILE, uploadCoupleFile, videoInfo } from "@/shared/lib/media";
 import { haptic, pop } from "@/shared/lib/motion/fx";
 import { Glyph } from "@/shared/ui/glyph";
 import { Art, toast } from "@/shared/ui/kit";
@@ -33,8 +19,12 @@ export const stickers = [
   "c-watering", "c-gift", "c-grass-laugh", "c-peek-right",
 ];
 
-const reactions = ["❤️", "😂", "😮", "🥺", "👍", "🔥", "🥰", "🙏"];
+/** The quick reactions, like Telegram's row, and the rest behind the arrow. */
+const quickReactions = ["❤️", "👍", "👎", "🔥", "🥰", "👏"];
+const moreReactions = ["😂", "😮", "😢", "🥺", "🙏", "🎉", "🤔", "😍", "🤯", "😱", "🤬", "💯", "🤝", "👀", "😴", "🤗", "😎", "🤩", "💔", "🌸", "⚡", "🍓", "🏆", "🙈", "🤡", "💩", "🫶", "✨", "☕", "🍿"];
+
 type Msg = CoupleItem<MessageData>;
+type Pending = { file: File; url: string; video: boolean };
 
 function dayLabel(iso: string) {
   return new Intl.DateTimeFormat(localeOf(), { weekday: "long", day: "numeric", month: "long" }).format(new Date(iso));
@@ -44,6 +34,17 @@ function timeLabel(iso: string) {
   return new Intl.DateTimeFormat(localeOf(), { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 }
 
+/** "today at 15:56", like the bottom of Telegram's message menu. */
+function whenLabel(t: (key: string, options?: Record<string, unknown>) => string, iso: string) {
+  const date = new Date(iso);
+  const time = timeLabel(iso);
+  const today = new Date();
+  const yesterday = new Date(Date.now() - 86_400_000);
+  if (date.toDateString() === today.toDateString()) return t("people.chat.todayAt", { time });
+  if (date.toDateString() === yesterday.toDateString()) return t("people.chat.yesterdayAt", { time });
+  return t("people.chat.at", { date: new Intl.DateTimeFormat(localeOf(), { day: "numeric", month: "long" }).format(date), time });
+}
+
 /** "Outgoing video call · 5:12", "Missed call"… seen from this person's side. */
 export function callLabel(t: (key: string) => string, call: NonNullable<MessageData["call"]>, mine: boolean): string {
   if (call.status === "declined") return t("call.log.declined");
@@ -51,29 +52,32 @@ export function callLabel(t: (key: string) => string, call: NonNullable<MessageD
   return t(`call.log.${mine ? "outgoing" : "incoming"}${call.video ? "Video" : ""}`);
 }
 
-function preview(t: (key: string) => string, message: Msg | undefined): string {
+export function preview(t: (key: string) => string, message: Msg | undefined): string {
   if (!message) return t("couple.chat.deleted");
   if (message.data.call) return `📞 ${callLabel(t, message.data.call, message.author === myId())}`;
   if (message.data.voice) return `🎤 ${t("couple.chat.voice")}`;
-  if (message.data.photo) return `📷 ${t("couple.chat.photo")}`;
+  if (message.data.photo) return `📷 ${message.data.text || t("couple.chat.photo")}`;
+  if (message.data.video) return `🎬 ${message.data.text || t("people.chat.video")}`;
   if (message.data.sticker) return `🌸 ${t("couple.chat.sticker")}`;
   return (message.data.text ?? "").slice(0, 90);
 }
 
-function draftKey() {
-  return `bloom.draft.${getCouple().me?.couple_key ?? ""}`;
+function isMedia(file: File) {
+  return file.type.startsWith("image/") || file.type.startsWith("video/");
 }
 
-/** The couple's conversation with the Telegram essentials. `compact` is used inside the cinema room. */
-export function ChatThread({ compact = false, searchOpen = false, onSearchClose }: { compact?: boolean; searchOpen?: boolean; onSearchClose?: () => void }) {
+/** One conversation (the partner or anyone else) with the Telegram essentials. `compact` is used inside the cinema room. */
+export function ChatThread({ conv, compact = false, searchOpen = false, onSearchClose }: { conv: Conversation; compact?: boolean; searchOpen?: boolean; onSearchClose?: () => void }) {
   const { t } = useTranslation();
-  const couple = useCouple();
-  const all = useItems<MessageData>("msg");
-  const partnerRead = useItem<{ seen?: string }>(`read:${couple.partner?.id ?? ""}`);
-  const myRead = useItem<{ seen?: string }>(`read:${couple.me?.id ?? ""}`);
-  const [text, setText] = useState(() => localStorage.getItem(draftKey()) ?? "");
+  const me = myId();
+  const name = conv.peer.name;
+  const draftKey = `bloom.draft.${conv.key}`;
+  const all = conv.useItems<MessageData>("msg");
+  const partnerRead = conv.useItem<{ seen?: string }>(`read:${conv.peer.id}`);
+  const myRead = conv.useItem<{ seen?: string }>(`read:${me ?? ""}`);
+  const [text, setText] = useState(() => localStorage.getItem(draftKey) ?? "");
   const [stickerOpen, setStickerOpen] = useState(false);
-  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number; more: boolean } | null>(null);
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [typing, setTyping] = useState(false);
@@ -82,14 +86,17 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
   const [query, setQuery] = useState("");
   const [viewer, setViewer] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [selected, setSelected] = useState<Set<string> | null>(null);
+  const [forwarding, setForwarding] = useState<string[] | null>(null);
+  const [pending, setPending] = useState<Pending[] | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [linkTopic, setLinkTopic] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
-  const photoInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const typingTimer = useRef(0);
   const lastTypingSent = useRef(0);
   const unreadFrom = useRef<string | null | undefined>(undefined);
-  const me = couple.me?.id;
-  const name = couple.partner?.name || "♥";
 
   const messages = useMemo(() => [...all].sort(messageOrder), [all]);
   const byId = useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
@@ -97,28 +104,33 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
   const lastPartner = [...messages].reverse().find((message) => message.author !== me);
   const pinned = [...messages].filter((message) => message.data.pinned).sort((a, b) => (b.data.pinned ?? "").localeCompare(a.data.pinned ?? ""))[0];
   const unreadBelow = messages.filter((message) => message.author !== me && message.created_at > (myRead?.data.seen ?? "")).length;
+  const composeLink = !editing && findLinks(text).length > 0;
 
   // Remember where the unread messages started when the chat opened, for the "new messages" divider.
-  if (unreadFrom.current === undefined && couple.me && all.length) {
+  if (unreadFrom.current === undefined && me && all.length) {
     const seen = myRead?.data.seen ?? "";
     unreadFrom.current = messages.find((message) => message.author !== me && message.created_at > seen)?.id ?? null;
   }
 
-  useSignal("typing", (payload) => {
-    setTyping(Boolean(payload.typing));
-    window.clearTimeout(typingTimer.current);
-    if (payload.typing) typingTimer.current = window.setTimeout(() => setTyping(false), 4000);
-  });
+  useEffect(
+    () =>
+      conv.onSignal("typing", (payload) => {
+        setTyping(Boolean(payload.typing));
+        window.clearTimeout(typingTimer.current);
+        if (payload.typing) typingTimer.current = window.setTimeout(() => setTyping(false), 4000);
+      }),
+    [conv],
+  );
 
   // Keep the draft between visits.
   useEffect(() => {
     if (editing) return;
     const timer = window.setTimeout(() => {
-      if (text) localStorage.setItem(draftKey(), text);
-      else localStorage.removeItem(draftKey());
+      if (text) localStorage.setItem(draftKey, text);
+      else localStorage.removeItem(draftKey);
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [text, editing]);
+  }, [text, editing, draftKey]);
 
   // Stick to the bottom when new messages arrive, unless the person scrolled up to read.
   useLayoutEffect(() => {
@@ -154,15 +166,23 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
   // Coming back to the window reads what arrived meanwhile.
   useEffect(() => {
     if (!lastPartner || !atBottom) return;
-    const read = () => inFront() && void markRead(lastPartner.created_at);
-    read();
-    window.addEventListener("focus", read);
-    document.addEventListener("visibilitychange", read);
+    const mark = () => inFront() && void read(conv, lastPartner.created_at);
+    mark();
+    window.addEventListener("focus", mark);
+    document.addEventListener("visibilitychange", mark);
     return () => {
-      window.removeEventListener("focus", read);
-      document.removeEventListener("visibilitychange", read);
+      window.removeEventListener("focus", mark);
+      document.removeEventListener("visibilitychange", mark);
     };
-  }, [lastPartner, atBottom]);
+  }, [lastPartner, atBottom, conv]);
+
+  // Escape leaves selection, like Telegram.
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && setSelected(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected]);
 
   function onScroll() {
     const node = list.current;
@@ -186,43 +206,107 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
     window.setTimeout(() => input.current?.focus(), 30);
   }
 
-  async function send(extra: Partial<Pick<MessageData, "sticker" | "voice" | "photo">> = {}) {
+  async function send(extra: Partial<Pick<MessageData, "sticker" | "voice" | "photo" | "video" | "topic">> = {}, caption: string | null = null) {
     if (editing) {
-      if (text.trim()) await editMessage(editing, text);
+      if (text.trim()) await edit(conv, editing, text);
       setEditing(null);
-      setText(localStorage.getItem(draftKey()) ?? "");
+      setText(localStorage.getItem(draftKey) ?? "");
       return;
     }
-    const body = extra.sticker || extra.voice || extra.photo ? null : text;
-    if (!body?.trim() && !extra.sticker && !extra.voice && !extra.photo) return;
-    if (!extra.sticker && !extra.voice && !extra.photo) setText("");
+    const attachment = extra.sticker || extra.voice || extra.photo || extra.video;
+    const body = attachment ? caption : text;
+    if (!body?.trim() && !attachment) return;
+    if (!attachment) {
+      setText("");
+      setLinkTopic(null);
+    }
     setStickerOpen(false);
     const reply = replyTo;
     setReplyTo(null);
     haptic(6);
     setAtBottom(true);
-    await sendMessage(body, { ...extra, replyTo: reply });
+    await sendTo(conv, body, { ...extra, ...(!attachment && composeLink && linkTopic ? { topic: linkTopic } : {}), replyTo: reply });
   }
 
-  async function sendPhoto(file: File | undefined) {
-    const key = couple.me?.couple_key;
-    if (!file || !key) return;
+  /** Photos and videos: from the clip button, Ctrl+V, or dropped on the chat. */
+  function attach(files: File[]) {
+    const media = files.filter(isMedia);
+    if (!media.length) return;
+    const tooBig = media.filter((file) => file.size > MAX_FILE);
+    if (tooBig.length) toast(t("people.chat.tooBig"), "c-frown");
+    const ok = media.filter((file) => file.size <= MAX_FILE).slice(0, 10);
+    if (ok.length) setPending(ok.map((file) => ({ file, url: URL.createObjectURL(file), video: file.type.startsWith("video/") })));
+  }
+
+  async function sendPending(items: Pending[], caption: string, topic: string | null) {
+    setPending(null);
     setUploading(true);
     try {
-      const image = await compressImage(file);
-      const path = await uploadCoupleFile(key, "photos", image.blob);
-      await send({ photo: { path, width: image.width, height: image.height } });
+      for (const [index, item] of items.entries()) {
+        const words = index === 0 ? caption.trim() || null : null;
+        if (item.video) {
+          const info = await videoInfo(item.file);
+          const path = await uploadCoupleFile(conv.key, "videos", item.file);
+          await send({ video: { path, ...info, mime: item.file.type }, topic }, words);
+        } else if (item.file.type === "image/gif") {
+          // Animated GIFs keep their animation.
+          const bitmap = await createImageBitmap(item.file);
+          const path = await uploadCoupleFile(conv.key, "photos", item.file);
+          await send({ photo: { path, width: bitmap.width, height: bitmap.height }, topic }, words);
+          bitmap.close();
+        } else {
+          const image = await compressImage(item.file);
+          const path = await uploadCoupleFile(conv.key, "photos", image.blob);
+          await send({ photo: { path, width: image.width, height: image.height }, topic }, words);
+        }
+      }
+      if (caption.trim() && text.trim() === caption.trim()) setText("");
     } catch {
       toast(t("couple.chat.uploadFailed"), "c-frown");
     } finally {
+      for (const item of items) URL.revokeObjectURL(item.url);
       setUploading(false);
     }
   }
 
   function openMenu(id: string, x: number, y: number) {
+    if (selected) return;
     haptic(10);
-    const box = list.current?.getBoundingClientRect();
-    setMenu({ id, x: x - (box?.left ?? 0), y: y - (box?.top ?? 0) + (list.current?.scrollTop ?? 0) });
+    const node = list.current;
+    const box = node?.getBoundingClientRect();
+    const scroll = node?.scrollTop ?? 0;
+    const inside = y - (box?.top ?? 0);
+    // Near the bottom the menu opens upwards, so it never hides under the edge.
+    const height = 420;
+    const top = node && inside + height > node.clientHeight ? Math.max(8, inside - height) : inside;
+    setMenu({ id, x: x - (box?.left ?? 0), y: top + scroll, more: false });
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((current) => {
+      const next = new Set(current ?? []);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next.size ? next : null;
+    });
+  }
+
+  async function copyText(ids: string[]) {
+    const words = ids
+      .map((id) => byId.get(id))
+      .filter((message): message is Msg => Boolean(message))
+      .sort(messageOrder)
+      .map((message) => message.data.text ?? "")
+      .filter(Boolean)
+      .join("\n\n");
+    await navigator.clipboard.writeText(words).catch(() => undefined);
+    toast(t("common.copied"), "c-hug-heart");
+  }
+
+  async function removeMany(ids: string[]) {
+    if (!window.confirm(ids.length > 1 ? t("people.chat.deleteMany", { count: ids.length }) : t("couple.chat.deleteConfirm"))) return;
+    for (const id of ids) await removeMessage(conv, id);
+    setSelected(null);
   }
 
   const filtered = query.trim() ? messages.filter((message) => (message.data.text ?? "").toLowerCase().includes(query.trim().toLowerCase())) : [];
@@ -230,8 +314,40 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
   let lastDay = "";
 
   return (
-    <div className={`chat ${compact ? "is-compact" : ""}`}>
-      {pinned ? (
+    <div
+      className={`chat ${compact ? "is-compact" : ""} ${selected ? "is-selecting" : ""} ${dragging ? "is-dropping" : ""}`}
+      onDragOver={(event) => {
+        if ([...event.dataTransfer.types].includes("Files")) {
+          event.preventDefault();
+          setDragging(true);
+        }
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragging(false);
+        attach([...event.dataTransfer.files]);
+      }}
+    >
+      {selected ? (
+        <div className="chat-select-bar">
+          <button type="button" className="icon-btn" aria-label={t("common.cancel")} onClick={() => setSelected(null)}>
+            <Glyph name="close" size={18} />
+          </button>
+          <b>{t("people.chat.selected", { count: selected.size })}</b>
+          <button type="button" className="btn is-sm is-ghost" onClick={() => void copyText([...selected]).then(() => setSelected(null))}>
+            <Glyph name="copy" size={16} /> {t("couple.chat.copy")}
+          </button>
+          <button type="button" className="btn is-sm is-ghost" onClick={() => setForwarding([...selected])}>
+            <Glyph name="share" size={16} /> {t("people.chat.forward")}
+          </button>
+          <button type="button" className="btn is-sm is-ghost is-danger" onClick={() => void removeMany([...selected])}>
+            <Glyph name="trash" size={16} /> {t("couple.chat.delete")}
+          </button>
+        </div>
+      ) : pinned ? (
         <button type="button" className="chat-pinned" onClick={() => jumpTo(pinned.id)}>
           <Glyph name="pin" size={16} />
           <span>
@@ -245,7 +361,7 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
             aria-label={t("couple.chat.unpin")}
             onClick={(event) => {
               event.stopPropagation();
-              void togglePin(pinned.id);
+              void pin(conv, pinned.id);
             }}
           >
             <Glyph name="close" size={14} stroke={2.6} />
@@ -281,8 +397,8 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
       <div className="chat-list" ref={list} onScroll={onScroll} onClick={() => setMenu(null)}>
         {messages.length === 0 ? (
           <div className="chat-empty">
-            <Art name="c-pair-hearts" />
-            <p className="sub">{t("couple.chat.empty")}</p>
+            <Art name={conv.isPartner ? "c-pair-hearts" : "c-wave"} />
+            <p className="sub">{conv.isPartner ? t("couple.chat.empty") : t("people.noMessages")}</p>
           </div>
         ) : null}
         {messages.map((message) => {
@@ -293,7 +409,8 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
           const quoted = message.data.replyTo ? byId.get(message.data.replyTo) : undefined;
           const reacted = Object.values(message.data.reactions ?? {});
           const grouped = [...new Set(reacted)].map((emoji) => ({ emoji, count: reacted.filter((item) => item === emoji).length }));
-          const media = message.data.sticker ? "is-sticker" : message.data.photo ? "is-photo" : "";
+          const media = message.data.sticker ? "is-sticker" : message.data.photo || message.data.video ? "is-photo" : "";
+          const link = message.data.text && !message.data.photo && !message.data.video ? mainLink(message.data.text) : null;
           return (
             <div key={message.id}>
               {showDay ? <p className="chat-day">{day}</p> : null}
@@ -302,6 +419,8 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
                 id={message.id}
                 mine={mine}
                 flash={flash === message.id}
+                selected={selected?.has(message.id) ?? null}
+                onTap={() => selected && toggleSelect(message.id)}
                 onReply={() => {
                   setReplyTo(message.id);
                   setEditing(null);
@@ -309,19 +428,25 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
                 }}
                 onMenu={(x, y) => openMenu(message.id, x, y)}
               >
-                <div className={`chat-bubble ${mine ? "is-mine" : ""} ${media}`}>
+                <div className={`chat-bubble ${mine ? "is-mine" : ""} ${media} ${link && link.kind !== "web" ? "has-embed" : ""}`}>
+                  {message.data.forwarded ? (
+                    <small className="chat-forwarded">↪ {t("people.chat.forwardedFrom", { name: message.data.forwarded.name ?? t("people.you") })}</small>
+                  ) : null}
                   {quoted || message.data.replyTo ? (
                     <button type="button" className="chat-quote" onClick={(event) => { event.stopPropagation(); if (quoted) jumpTo(quoted.id); }}>
                       <b>{quoted ? (quoted.author === me ? t("couple.you") : name) : "…"}</b>
                       <span>{preview(t, quoted)}</span>
                     </button>
                   ) : null}
-                  {message.data.call ? <CallRecord call={message.data.call} mine={mine} /> : null}
+                  {message.data.call ? <CallRecord call={message.data.call} mine={mine} conv={conv} /> : null}
                   {message.data.sticker ? <Art name={message.data.sticker} /> : null}
                   {message.data.photo ? <Photo path={message.data.photo.path} ratio={message.data.photo.width / message.data.photo.height} onOpen={setViewer} /> : null}
+                  {message.data.video ? <VideoNote path={message.data.video.path} ratio={message.data.video.width / message.data.video.height} /> : null}
                   {message.data.voice ? <VoicePlayer path={message.data.voice.path} duration={message.data.voice.duration} tone={mine ? "dark" : "light"} /> : null}
-                  {message.data.text ? <span className="chat-text">{message.data.text}</span> : null}
+                  {link ? <LinkCard link={link} /> : null}
+                  {message.data.text ? <span className="chat-text">{linkify(message.data.text)}</span> : null}
                   <small className="chat-meta">
+                    {message.data.topic ? `${topicIcon(message.data.topic)} ` : ""}
                     {message.data.pinned ? "📌 " : ""}
                     {message.data.edited ? `${t("couple.chat.edited")} · ` : ""}
                     {timeLabel(message.created_at)}
@@ -331,7 +456,7 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
                 {grouped.length ? (
                   <span className="chat-reacts">
                     {grouped.map((item) => (
-                      <button key={item.emoji} type="button" onClick={(event) => { event.stopPropagation(); void toggleReaction(message.id, item.emoji); }}>
+                      <button key={item.emoji} type="button" onClick={(event) => { event.stopPropagation(); void react(conv, message.id, item.emoji); }}>
                         {item.emoji}
                         {item.count > 1 ? <small>{item.count}</small> : null}
                       </button>
@@ -354,56 +479,59 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
         ) : null}
 
         {menu && menuMessage ? (
-          <div className="chat-menu" style={{ top: menu.y, left: Math.max(8, Math.min(menu.x - 120, (list.current?.clientWidth ?? 300) - 250)) }} onClick={(event) => event.stopPropagation()}>
-            <div className="chat-menu-reacts">
-              {reactions.map((emoji) => (
+          <div className="chat-menu" style={{ top: menu.y, left: Math.max(8, Math.min(menu.x - 120, (list.current?.clientWidth ?? 300) - 270)) }} onClick={(event) => event.stopPropagation()}>
+            <div className={`chat-menu-reacts ${menu.more ? "is-more" : ""}`}>
+              {(menu.more ? [...quickReactions, ...moreReactions] : quickReactions).map((emoji) => (
                 <button
                   key={emoji}
                   type="button"
                   className={menuMessage.data.reactions?.[me ?? ""] === emoji ? "is-on" : ""}
                   onClick={(event) => {
                     pop(event.currentTarget, 1.3);
-                    void toggleReaction(menuMessage.id, emoji);
+                    void react(conv, menuMessage.id, emoji);
                     setMenu(null);
                   }}
                 >
                   {emoji}
                 </button>
               ))}
+              {menu.more ? null : (
+                <button type="button" className="chat-menu-more" aria-label={t("people.chat.more")} onClick={() => setMenu({ ...menu, more: true })}>
+                  <Glyph name="down" size={16} stroke={2.6} />
+                </button>
+              )}
             </div>
             <button type="button" onClick={() => { setReplyTo(menuMessage.id); setEditing(null); setMenu(null); input.current?.focus(); }}>
               <Glyph name="reply" size={18} /> {t("couple.chat.reply")}
             </button>
-            {menuMessage.data.text ? (
-              <button
-                type="button"
-                onClick={async () => {
-                  await navigator.clipboard.writeText(menuMessage.data.text ?? "").catch(() => undefined);
-                  toast(t("common.copied"), "c-hug-heart");
-                  setMenu(null);
-                }}
-              >
-                <Glyph name="copy" size={18} /> {t("couple.chat.copy")}
-              </button>
-            ) : null}
             {menuMessage.author === me && menuMessage.data.text ? (
               <button type="button" onClick={() => { startEdit(menuMessage); setMenu(null); }}>
                 <Glyph name="edit" size={18} /> {t("couple.chat.edit")}
               </button>
             ) : null}
-            <button type="button" onClick={() => { void togglePin(menuMessage.id); setMenu(null); }}>
+            <button type="button" onClick={() => { void pin(conv, menuMessage.id); setMenu(null); }}>
               <Glyph name="pin" size={18} /> {menuMessage.data.pinned ? t("couple.chat.unpin") : t("couple.chat.pin")}
             </button>
-            <button
-              type="button"
-              className="is-danger"
-              onClick={() => {
-                if (window.confirm(t("couple.chat.deleteConfirm"))) void deleteMessage(menuMessage.id);
-                setMenu(null);
-              }}
-            >
+            {menuMessage.data.text ? (
+              <button type="button" onClick={() => { void copyText([menuMessage.id]); setMenu(null); }}>
+                <Glyph name="copy" size={18} /> {t("people.chat.copyText")}
+              </button>
+            ) : null}
+            {menuMessage.data.call ? null : (
+              <button type="button" onClick={() => { setForwarding([menuMessage.id]); setMenu(null); }}>
+                <Glyph name="share" size={18} /> {t("people.chat.forward")}
+              </button>
+            )}
+            <button type="button" className="is-danger" onClick={() => { setMenu(null); void removeMany([menuMessage.id]); }}>
               <Glyph name="trash" size={18} /> {t("couple.chat.delete")}
             </button>
+            <button type="button" onClick={() => { setSelected(new Set([menuMessage.id])); setMenu(null); }}>
+              <Glyph name="check" size={18} /> {t("people.chat.select")}
+            </button>
+            <p className="chat-menu-when">
+              <Glyph name="clock" size={16} /> {whenLabel(t, menuMessage.created_at)}
+              {menuMessage.data.edited ? ` · ${t("couple.chat.edited")}` : ""}
+            </p>
           </div>
         ) : null}
       </div>
@@ -432,20 +560,22 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
             <b>{editing ? t("couple.chat.editing") : t("couple.chat.replyingTo", { name: byId.get(replyTo!)?.author === me ? t("couple.you") : name })}</b>
             <small>{preview(t, byId.get((editing ?? replyTo)!))}</small>
           </span>
-          <button type="button" className="icon-btn" aria-label={t("common.cancel")} onClick={() => { setReplyTo(null); if (editing) { setEditing(null); setText(localStorage.getItem(draftKey()) ?? ""); } }}>
+          <button type="button" className="icon-btn" aria-label={t("common.cancel")} onClick={() => { setReplyTo(null); if (editing) { setEditing(null); setText(localStorage.getItem(draftKey) ?? ""); } }}>
             <Glyph name="close" size={16} />
           </button>
         </div>
       ) : null}
 
+      {composeLink ? <TopicChips value={linkTopic} onChange={setLinkTopic} /> : null}
+
       <div className="chat-compose">
         <button type="button" className={`icon-btn ${stickerOpen ? "is-sky" : ""}`} aria-label={t("couple.chat.stickers")} onClick={() => setStickerOpen(!stickerOpen)}>
           <Glyph name="sparkle" size={20} />
         </button>
-        <button type="button" className="icon-btn" aria-label={t("couple.chat.photo")} disabled={uploading} onClick={() => photoInput.current?.click()}>
+        <button type="button" className="icon-btn" aria-label={t("people.chat.attach")} title={t("people.chat.attach")} disabled={uploading} onClick={() => fileInput.current?.click()}>
           {uploading ? <span className="spinner" /> : <Glyph name="image" size={20} />}
         </button>
-        <input ref={photoInput} type="file" accept="image/*" hidden onChange={(event) => { void sendPhoto(event.target.files?.[0]); event.target.value = ""; }} />
+        <input ref={fileInput} type="file" accept="image/*,video/*" multiple hidden onChange={(event) => { attach([...(event.target.files ?? [])]); event.target.value = ""; }} />
         <span className="input">
           <textarea
             ref={input}
@@ -453,11 +583,19 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
             value={text}
             placeholder={t("couple.chat.placeholder")}
             maxLength={4000}
+            onPaste={(event) => {
+              // Ctrl+V with a picture or video: show it ready to send, like Telegram.
+              const files = [...event.clipboardData.files].filter(isMedia);
+              if (files.length) {
+                event.preventDefault();
+                attach(files);
+              }
+            }}
             onChange={(event) => {
               setText(event.target.value);
               if (Date.now() - lastTypingSent.current > 2500) {
                 lastTypingSent.current = Date.now();
-                void signal("typing", { typing: true });
+                void conv.signal("typing", { typing: true });
               }
             }}
             onKeyDown={(event) => {
@@ -491,10 +629,8 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
           <RecordButton
             compact
             onDone={async (recording) => {
-              const key = couple.me?.couple_key;
-              if (!key) return;
               try {
-                const path = await uploadCoupleFile(key, "voice", recording.blob);
+                const path = await uploadCoupleFile(conv.key, "voice", recording.blob);
                 await send({ voice: { path, duration: recording.duration, mime: recording.mime } });
               } catch {
                 toast(t("couple.chat.uploadFailed"), "c-frown");
@@ -503,6 +639,31 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
           />
         )}
       </div>
+
+      {dragging ? <div className="chat-drop">{t("people.chat.dropHere")}</div> : null}
+
+      {pending ? (
+        <AttachSheet
+          items={pending}
+          initialCaption={text}
+          onCancel={() => {
+            for (const item of pending) URL.revokeObjectURL(item.url);
+            setPending(null);
+          }}
+          onSend={(caption, topic) => void sendPending(pending, caption, topic)}
+        />
+      ) : null}
+
+      {forwarding ? (
+        <ForwardSheet
+          from={conv}
+          ids={forwarding}
+          onClose={(done) => {
+            setForwarding(null);
+            if (done) setSelected(null);
+          }}
+        />
+      ) : null}
 
       {viewer ? (
         <button type="button" className="photo-viewer" onClick={() => setViewer(null)}>
@@ -513,19 +674,172 @@ export function ChatThread({ compact = false, searchOpen = false, onSearchClose 
   );
 }
 
-/** One message row: swipe right to reply, long-press or right-click for the menu. */
+/** Links in a message stay clickable and open outside Bloom. */
+function linkify(text: string): ReactNode {
+  const links = findLinks(text);
+  if (!links.length) return text;
+  const parts: ReactNode[] = [];
+  let rest = text;
+  for (const [index, url] of links.entries()) {
+    const at = rest.indexOf(url);
+    if (at < 0) continue;
+    if (at) parts.push(rest.slice(0, at));
+    parts.push(
+      <a
+        key={index}
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void openOutside(url);
+        }}
+      >
+        {url}
+      </a>,
+    );
+    rest = rest.slice(at + url.length);
+  }
+  if (rest) parts.push(rest);
+  return parts;
+}
+
+/** YouTube / Shorts, TikTok and Reels play inside the chat; other links get a small card. */
+export function LinkCard({ link }: { link: LinkInfo }) {
+  const [playing, setPlaying] = useState(false);
+  const embed = embedUrl(link);
+  if (link.kind === "web" || !embed) return null;
+  const vertical = link.kind !== "youtube" || link.vertical;
+  const label = link.kind === "youtube" ? (link.vertical ? "YouTube Shorts" : "YouTube") : link.kind === "tiktok" ? "TikTok" : "Instagram";
+  return (
+    <span className={`chat-embed ${vertical ? "is-vertical" : ""}`} onClick={(event) => event.stopPropagation()}>
+      {playing ? (
+        <iframe src={embed} title={label} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen />
+      ) : (
+        <button type="button" className="chat-embed-cover" onClick={() => setPlaying(true)}>
+          {link.kind === "youtube" ? <img src={`https://i.ytimg.com/vi/${link.id}/hqdefault.jpg`} alt="" loading="lazy" /> : null}
+          <span className="chat-embed-play">▶</span>
+          <span className="chat-embed-label">{label}</span>
+        </button>
+      )}
+    </span>
+  );
+}
+
+function TopicChips({ value, onChange }: { value: string | null; onChange: (topic: string | null) => void }) {
+  const { t } = useTranslation();
+  return (
+    <div className="topic-chips" role="group" aria-label={t("people.chat.topic")}>
+      {topics.map((topic) => (
+        <button key={topic.id} type="button" className={`chip ${value === topic.id ? "is-on" : ""}`} onClick={() => onChange(value === topic.id ? null : topic.id)}>
+          {topic.icon} {t(`people.topics.${topic.id}`)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Pasted, dropped or picked photos and videos: a look before sending, a caption and a topic (Telegram's send dialog). */
+function AttachSheet({ items, initialCaption, onCancel, onSend }: { items: Pending[]; initialCaption: string; onCancel: () => void; onSend: (caption: string, topic: string | null) => void }) {
+  const { t } = useTranslation();
+  const [caption, setCaption] = useState(initialCaption);
+  const [topic, setTopic] = useState<string | null>(null);
+  return (
+    <div className="attach-sheet" onClick={(event) => event.target === event.currentTarget && onCancel()}>
+      <div className="attach-card" role="dialog" aria-label={t("people.chat.attach")}>
+        <div className={`attach-previews ${items.length > 1 ? "is-many" : ""}`}>
+          {items.map((item) => (item.video ? <video key={item.url} src={item.url} muted controls playsInline /> : <img key={item.url} src={item.url} alt="" />))}
+        </div>
+        <TopicChips value={topic} onChange={setTopic} />
+        <span className="input">
+          <input
+            autoFocus
+            value={caption}
+            placeholder={t("people.chat.caption")}
+            maxLength={1000}
+            onChange={(event) => setCaption(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") onSend(caption, topic);
+              if (event.key === "Escape") onCancel();
+            }}
+          />
+        </span>
+        <div className="attach-actions">
+          <button type="button" className="btn is-ghost" onClick={onCancel}>
+            {t("common.cancel")}
+          </button>
+          <button type="button" className="btn" onClick={() => onSend(caption, topic)}>
+            {items.length > 1 ? t("people.chat.sendCount", { count: items.length }) : t("people.chat.send")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Choose a chat to forward to: the partner, family and friends. */
+export function ForwardSheet({ from, ids, onClose }: { from: Conversation; ids: string[]; onClose: (done: boolean) => void }) {
+  const { t } = useTranslation();
+  const contacts = useContacts();
+  const [busy, setBusy] = useState(false);
+  const targets = allConversations(contacts.list);
+  return (
+    <div className="attach-sheet" onClick={(event) => event.target === event.currentTarget && onClose(false)}>
+      <div className="attach-card forward-card" role="dialog" aria-label={t("people.chat.forwardTo")}>
+        <h3>{t("people.chat.forwardTo")}</h3>
+        <div className="forward-list">
+          {targets.map((target) => (
+            <button
+              key={target.id}
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await forward(from, ids, target, from.peer.name);
+                  toast(t("people.chat.forwarded"), "c-arms-up");
+                  onClose(true);
+                } catch {
+                  toast(t("couple.chat.uploadFailed"), "c-frown");
+                  setBusy(false);
+                }
+              }}
+            >
+              <span className="forward-ava">{target.isPartner ? "❤️" : target.peer.name.trim().charAt(0).toUpperCase() || "♥"}</span>
+              <span>
+                <b>{target.peer.name}</b>
+                <small>{target.isPartner ? t("people.partner") : contacts.list.find((item) => item.id === target.id)?.kind === "family" ? t("people.family") : t("people.friends")}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+        <button type="button" className="btn is-ghost" onClick={() => onClose(false)}>
+          {t("common.cancel")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** One message row: swipe right to reply, long-press or right-click for the menu; a tap selects while selecting. */
 function Bubble({
   id,
   mine,
   flash,
+  selected,
   children,
+  onTap,
   onReply,
   onMenu,
 }: {
   id: string;
   mine: boolean;
   flash: boolean;
-  children: React.ReactNode;
+  /** null when not selecting. */
+  selected: boolean | null;
+  children: ReactNode;
+  onTap: () => void;
   onReply: () => void;
   onMenu: (x: number, y: number) => void;
 }) {
@@ -538,13 +852,20 @@ function Bubble({
     <div
       id={`m-${id}`}
       ref={row}
-      className={`bubble-row ${mine ? "is-mine" : ""} ${flash ? "is-flash" : ""}`}
+      className={`bubble-row ${mine ? "is-mine" : ""} ${flash ? "is-flash" : ""} ${selected ? "is-selected" : ""}`}
       style={{ transform: dx ? `translateX(${dx}px)` : undefined }}
+      onClickCapture={(event) => {
+        if (selected === null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onTap();
+      }}
       onContextMenu={(event) => {
         event.preventDefault();
         onMenu(event.clientX, event.clientY);
       }}
       onPointerDown={(event) => {
+        if (selected !== null) return;
         start.current = { x: event.clientX, y: event.clientY, at: Date.now() };
         const { clientX, clientY } = event;
         press.current = window.setTimeout(() => {
@@ -574,6 +895,7 @@ function Bubble({
         start.current = null;
       }}
     >
+      {selected !== null ? <span className={`bubble-check ${selected ? "is-on" : ""}`}>{selected ? "✓" : ""}</span> : null}
       {dx > 20 ? (
         <span className="swipe-reply" style={{ opacity: Math.min(1, dx / 50) }}>
           <Glyph name="reply" size={16} />
@@ -584,7 +906,7 @@ function Bubble({
   );
 }
 
-function Photo({ path, ratio, onOpen }: { path: string; ratio: number; onOpen: (url: string) => void }) {
+function useFileUrl(path: string) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
@@ -595,6 +917,11 @@ function Photo({ path, ratio, onOpen }: { path: string; ratio: number; onOpen: (
       alive = false;
     };
   }, [path]);
+  return url;
+}
+
+export function Photo({ path, ratio, onOpen }: { path: string; ratio: number; onOpen: (url: string) => void }) {
+  const url = useFileUrl(path);
   return (
     <button type="button" className="chat-photo" style={{ aspectRatio: String(ratio || 1) }} onClick={(event) => { event.stopPropagation(); if (url) onOpen(url); }}>
       {url ? <img src={url} alt="" loading="lazy" /> : <span className="spinner" />}
@@ -602,8 +929,17 @@ function Photo({ path, ratio, onOpen }: { path: string; ratio: number; onOpen: (
   );
 }
 
+export function VideoNote({ path, ratio }: { path: string; ratio: number }) {
+  const url = useFileUrl(path);
+  return (
+    <span className="chat-photo chat-video" style={{ aspectRatio: String(ratio || 16 / 9) }} onClick={(event) => event.stopPropagation()}>
+      {url ? <video src={url} controls playsInline preload="metadata" /> : <span className="spinner" />}
+    </span>
+  );
+}
+
 /** A call in the chat: what kind, how long, and a button to call back. */
-function CallRecord({ call, mine }: { call: NonNullable<MessageData["call"]>; mine: boolean }) {
+function CallRecord({ call, mine, conv }: { call: NonNullable<MessageData["call"]>; mine: boolean; conv: Conversation }) {
   const { t } = useTranslation();
   const missed = call.status !== "ended";
   const minutes = Math.floor(call.seconds / 60);
@@ -623,7 +959,7 @@ function CallRecord({ call, mine }: { call: NonNullable<MessageData["call"]>; mi
         className="chat-call-again"
         onClick={(event) => {
           event.stopPropagation();
-          void startCall(call.video);
+          void startCall(call.video, conv);
         }}
         aria-label={t("call.log.again")}
         title={t("call.log.again")}

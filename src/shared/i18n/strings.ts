@@ -1,4 +1,5 @@
 import { callStrings } from "./call-strings";
+import { peopleStrings } from "./people-strings";
 import { coupleStrings } from "./couple-strings";
 import { learnStrings } from "./learn-strings";
 import { notifyStrings } from "./notify-strings";
@@ -213,6 +214,7 @@ export const strings = {
     together: ["Support", "Поддержка", "陪伴"],
     chat: ["Chat", "Чат", "聊天"],
     pair: ["Together", "Вместе", "一起"],
+    people: ["People", "Люди", "联系人"],
     garden: ["Garden", "Сад", "花园"],
     privacy: ["Privacy", "Приватность", "隐私"],
     settings: ["Settings", "Настройки", "设置"],
@@ -1194,6 +1196,7 @@ export const strings = {
 
   tour: tourStrings,
   call: callStrings,
+  people: peopleStrings,
   couple: coupleStrings,
   learn: learnStrings,
   notify: notifyStrings,

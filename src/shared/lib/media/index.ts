@@ -73,6 +73,10 @@ export async function startRecording(): Promise<Recorder> {
 }
 
 function extension(mime: string) {
+  if (mime === "video/mp4") return "mp4";
+  if (mime === "video/quicktime") return "mov";
+  if (mime === "video/webm") return "webm";
+  if (mime.includes("gif")) return "gif";
   if (mime.includes("mp4") || mime.includes("aac") || mime.includes("m4a")) return "m4a";
   if (mime.includes("ogg")) return "ogg";
   if (mime.includes("webm")) return "webm";
@@ -125,3 +129,23 @@ export function formatDuration(seconds: number) {
   const s = Math.max(0, Math.round(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
+
+/** Size and length of a video file before it is sent. */
+export function videoInfo(file: Blob): Promise<{ width: number; height: number; duration: number }> {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    const done = (info: { width: number; height: number; duration: number }) => {
+      URL.revokeObjectURL(url);
+      resolve(info);
+    };
+    video.preload = "metadata";
+    video.muted = true;
+    video.onloadedmetadata = () => done({ width: video.videoWidth || 16, height: video.videoHeight || 9, duration: Number.isFinite(video.duration) ? Math.round(video.duration) : 0 });
+    video.onerror = () => done({ width: 16, height: 9, duration: 0 });
+    video.src = url;
+  });
+}
+
+/** Videos up to this size are sent as they are (the storage limit). */
+export const MAX_FILE = 50 * 1024 * 1024;

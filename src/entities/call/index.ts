@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
-import { getCouple, getItem, getItems, myId, onSignal, putItem, sendMessage, signal, type TurnData } from "@/entities/couple";
+import { getCouple, getItem, myId, onSignal as onSignalFromPartner, type TurnData } from "@/entities/couple";
+import { contactByKey, contactConversation, getContacts, onChatSignal, partnerConversation, send as sendTo, type Conversation } from "@/entities/chat";
 import { supabase } from "@/shared/api/supabase";
 import { createId } from "@/shared/lib/id";
 import { iceServers } from "@/shared/lib/webrtc/share";
@@ -8,7 +9,7 @@ import type { ScreenSound } from "@/shared/lib/native";
 import { CallLink, openCamera, openMic, openScreen, type CallSignal, type RemoteMedia } from "@/shared/lib/webrtc/call";
 
 /**
- * Calls between the partners, like Telegram: ring → accept / decline → talk → hang up.
+ * Calls like Telegram's — with the partner, family or friends: ring → accept / decline → talk → hang up.
  * Ringing travels both as a live signal and as a shared "call" item (the item makes the server
  * push "… is calling" to a phone or computer where Bloom is closed). Every device of a person
  * rings; the one that answers takes the call and the others stop.
@@ -22,6 +23,8 @@ export type CallItem = { by: string; video: boolean; state: "ringing" | "accepte
 export type CallState = {
   phase: CallPhase;
   id: string | null;
+  /** Who the call is with. */
+  peer: { id: string; name: string; partner: boolean } | null;
   /** Started as a video call. */
   video: boolean;
   caller: boolean;
@@ -49,6 +52,7 @@ const device = createId();
 const initial: CallState = {
   phase: "idle",
   id: null,
+  peer: null,
   video: false,
   caller: false,
   mic: true,
@@ -91,6 +95,12 @@ export function getCall(): CallState {
 /* ------------------------------------------------------------------ media & connection */
 
 let link: CallLink | null = null;
+/** The chat the current call belongs to (signals, the ringing item and the call record go there). */
+let conv: Conversation | null = null;
+
+function peerOf(target: Conversation) {
+  return { id: target.peer.id, name: target.peer.name, partner: target.isPartner };
+}
 let peerDevice: string | null = null;
 let micTrack: MediaStreamTrack | null = null;
 let camTrack: MediaStreamTrack | null = null;
@@ -114,7 +124,7 @@ function localStream(): MediaStream {
 }
 
 function send(action: string, extra: Record<string, unknown> = {}) {
-  void signal("call", { id: state.id, action, device, to: peerDevice, ...extra });
+  void conv?.signal("call", { id: state.id, action, device, to: peerDevice, ...extra });
 }
 
 function sendMedia() {
@@ -192,13 +202,14 @@ function onLinkState(linkState: RTCPeerConnectionState) {
 
 export type StartError = "not-paired" | "busy" | "media";
 
-/** Calls the partner. */
-export async function startCall(video: boolean): Promise<StartError | null> {
-  const couple = getCouple();
-  if (!couple.partner) return "not-paired";
+/** Calls the partner, or anyone else when their chat is given. */
+export async function startCall(video: boolean, target?: Conversation | null): Promise<StartError | null> {
+  const to = target ?? partnerConversation();
+  if (!to) return "not-paired";
   if (state.phase !== "idle" && state.phase !== "ended") return "busy";
   reset();
-  set({ phase: "outgoing", video, caller: true, id: `call:${createId()}`, facing: "user" });
+  conv = to;
+  set({ phase: "outgoing", video, caller: true, id: `call:${createId()}`, facing: "user", peer: peerOf(to) });
   void loadRelay();
   try {
     await startMedia(video);
@@ -210,10 +221,10 @@ export async function startCall(video: boolean): Promise<StartError | null> {
   const now = getCall();
   if (now.phase !== "outgoing" || !now.id) return null;
   const id = now.id;
-  await putItem(id, "call", { by: myId() ?? "", video, state: "ringing", at: new Date().toISOString() } satisfies CallItem).catch(() => undefined);
+  await to.put(id, "call", { by: myId() ?? "", video, state: "ringing", at: new Date().toISOString() } satisfies CallItem).catch(() => undefined);
   const ring = () => {
     if (state.phase === "outgoing" && state.id === id) {
-      send("ring", { video, name: couple.me?.name ?? "" });
+      send("ring", { video, name: getCouple().me?.name ?? "" });
       later(ring, 2500);
     }
   };
@@ -396,12 +407,14 @@ function finish(reason: EndReason, log: boolean) {
   set({ phase: "ended", ended: reason, local: null, localScreen: null, media: null, link: "closed", minimized: false });
   later(dismissCall, reason === "busy" || reason === "declined" ? 2600 : 1800);
   if (!id) return;
-  const item = getItem<CallItem>(id);
-  if (item && item.data.state !== "ended") void putItem(id, "call", { ...item.data, state: "ended" }).catch(() => undefined);
+  const where = conv;
+  if (!where) return;
+  const item = where.getItem<CallItem>(id);
+  if (item && item.data.state !== "ended") void where.put(id, "call", { ...item.data, state: "ended" }).catch(() => undefined);
   if (caller && log && reason !== "busy" && reason !== "media") {
     const seconds = answeredAt ? Math.round((Date.now() - answeredAt) / 1000) : 0;
     const status: CallLog["status"] = reason === "declined" ? "declined" : answeredAt ? "ended" : "missed";
-    void sendMessage(null, { call: { video, status, seconds } });
+    void sendTo(where, null, { call: { video, status, seconds } });
   }
 }
 
@@ -409,13 +422,14 @@ function finish(reason: EndReason, log: boolean) {
 
 type Incoming = { id?: string; action?: string; device?: string; to?: string | null; from?: string; video?: boolean; rtc?: CallSignal; mic?: boolean; cam?: boolean; screen?: boolean };
 
-function ring(id: string, video: boolean, callerDevice: string | undefined) {
+function ring(from: Conversation, id: string, video: boolean, callerDevice: string | undefined) {
   if (state.phase !== "idle" && state.phase !== "ended") {
-    if (state.id !== id) void signal("call", { id, action: "busy", device, to: callerDevice ?? null });
+    if (state.id !== id) void from.signal("call", { id, action: "busy", device, to: callerDevice ?? null });
     return;
   }
   reset();
-  set({ phase: "incoming", id, video, caller: false });
+  conv = from;
+  set({ phase: "incoming", id, video, caller: false, peer: peerOf(from) });
   void loadRelay();
   // Stop ringing if the caller gives up without telling us (closed app, lost network).
   window.clearTimeout(ringTimer);
@@ -428,7 +442,17 @@ let started = false;
 export function listenForCalls() {
   if (started) return;
   started = true;
-  onSignal("call", (raw) => {
+  const partnerSignal = (event: string, handler: (from: Conversation, payload: Record<string, unknown>) => void) =>
+    onSignalFromPartner(event, (payload) => {
+      const from = partnerConversation();
+      if (from) handler(from, payload);
+    });
+  const contactSignal = (event: string, handler: (from: Conversation, payload: Record<string, unknown>) => void) =>
+    onChatSignal(event, (chatKey, payload) => {
+      const contact = contactByKey(chatKey);
+      if (contact) handler(contactConversation(contact), payload);
+    });
+  const onCall = (from: Conversation, raw: Record<string, unknown>) => {
     const message = raw as Incoming;
     const me = myId();
     if (!message.id || !message.action) return;
@@ -441,7 +465,7 @@ export function listenForCalls() {
     const mine = state.id === message.id;
     switch (message.action) {
       case "ring":
-        if (!mine) ring(message.id, Boolean(message.video), message.device);
+        if (!mine) ring(from, message.id, Boolean(message.video), message.device);
         else if (state.phase === "incoming") {
           window.clearTimeout(ringTimer);
           ringTimer = window.setTimeout(() => state.phase === "incoming" && finish("missed", false), 6000);
@@ -452,8 +476,8 @@ export function listenForCalls() {
           peerDevice = message.device ?? null;
           window.clearTimeout(ringTimer);
           set({ phase: "connecting" });
-          const item = getItem<CallItem>(message.id);
-          if (item) void putItem(message.id, "call", { ...item.data, state: "accepted" }).catch(() => undefined);
+          const item = from.getItem<CallItem>(message.id);
+          if (item) void from.put(message.id, "call", { ...item.data, state: "accepted" }).catch(() => undefined);
           void loadRelay().then(() => {
             if (state.phase !== "connecting" || state.id !== message.id) return;
             makeLink(true);
@@ -480,20 +504,27 @@ export function listenForCalls() {
         if (mine) set({ remote: { mic: message.mic !== false, cam: Boolean(message.cam), screen: Boolean(message.screen) } });
         break;
     }
-  });
+  };
   // Opened from a "… is calling" notification: the call item is already there.
-  onSignal("item:call", (row) => {
+  const onItem = (from: Conversation, row: Record<string, unknown>) => {
     const item = row as unknown as { id: string; author: string; data: CallItem };
-    if (item.author !== myId() && item.data?.state === "ringing" && Date.now() - Date.parse(item.data.at) < RING_MS) ring(item.id, item.data.video, undefined);
-  });
+    if (item.author !== myId() && item.data?.state === "ringing" && Date.now() - Date.parse(item.data.at) < RING_MS) ring(from, item.id, item.data.video, undefined);
+  };
+  partnerSignal("call", onCall);
+  contactSignal("call", onCall);
+  partnerSignal("item:call", onItem);
+  contactSignal("item:call", onItem);
 }
 
 /** A call that is still ringing for me (e.g. right after opening Bloom from the notification). */
 export function checkRinging() {
   const me = myId();
   if (!me || state.phase !== "idle") return;
-  const ringing = getItems<CallItem>("call").find((item) => item.author !== me && item.data.state === "ringing" && Date.now() - Date.parse(item.data.at) < RING_MS);
-  if (ringing) ring(ringing.id, ringing.data.video, undefined);
+  const chats = [partnerConversation(), ...getContacts().list.map(contactConversation)].filter((item): item is Conversation => Boolean(item));
+  for (const from of chats) {
+    const ringing = from.getItems<CallItem>("call").find((item) => item.author !== me && item.data.state === "ringing" && Date.now() - Date.parse(item.data.at) < RING_MS);
+    if (ringing) return ring(from, ringing.id, ringing.data.video, undefined);
+  }
 }
 
 

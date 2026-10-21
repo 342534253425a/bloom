@@ -83,6 +83,9 @@ export function HomePage() {
           <p className="sub">{t(`home.line${part[0]!.toUpperCase()}${part.slice(1)}`)}</p>
         </div>
         <div className="home-head-actions">
+          <Link to="/spaces" className="round-btn mob-only" aria-label={t("nav.spaces")} title={t("nav.spaces")}>
+            <Glyph name="grid" size={21} stroke={2.1} />
+          </Link>
           <Link to="/settings" className="round-btn mob-only" aria-label={t("nav.settings")}>
             <Glyph name="settings" size={21} stroke={2.1} />
           </Link>

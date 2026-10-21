@@ -39,7 +39,14 @@ export type MessageData = {
   photo?: PhotoAttachment | null;
   /** A call record (written by the caller when the call ends). */
   call?: { video: boolean; status: "ended" | "missed" | "declined"; seconds: number } | null;
+  video?: VideoAttachment | null;
+  /** Memes and finds: humor, useful, science, cooking… (shown together on the Memes shelf). */
+  topic?: string | null;
+  /** Forwarded from another chat; name of the original author, or null when it was your own. */
+  forwarded?: { name: string | null } | null;
 };
+
+export type VideoAttachment = { path: string; width: number; height: number; duration: number; mime: string };
 
 /** Messages ordered the way the server received them (phone clocks in two countries can disagree). */
 export function messageOrder(a: CoupleItem<MessageData>, b: CoupleItem<MessageData>) {
