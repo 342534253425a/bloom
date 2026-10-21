@@ -2,6 +2,7 @@
  * One-way live video between the two partners: the host sends a stream (screen, tab or a local video file),
  * the viewer receives it. Signalling messages travel over the couple's realtime channel.
  */
+import { captureAndroidScreen, canShareAndroidScreen } from "./android-screen";
 
 export type RtcSignal =
   | { kind: "join" }
@@ -96,7 +97,7 @@ export async function readStats(pc: RTCPeerConnection, direction: "outbound" | "
 type Send = (signal: RtcSignal) => void;
 
 /** Ask Chrome-based browsers to start near the target bitrate instead of ramping up from ~300 kbps. */
-function withStartBitrate(sdp: string, kbps: number): string {
+export function withStartBitrate(sdp: string, kbps: number): string {
   const lines = sdp.split("\r\n");
   const videoPts = new Set<string>();
   let inVideo = false;
@@ -282,6 +283,7 @@ export class ShareViewer {
 
 /** Ask the browser for a screen, window or tab, with sound where the browser allows it. */
 export async function captureScreen(quality: Quality): Promise<MediaStream> {
+  if (canShareAndroidScreen()) return captureAndroidScreen();
   const preset = qualities[quality];
   const options = {
     video: { frameRate: { ideal: preset.fps, max: 30 }, height: { ideal: Math.max(preset.height, 720) } },
@@ -295,6 +297,7 @@ export async function captureScreen(quality: Quality): Promise<MediaStream> {
 }
 
 export function canShareScreen(): boolean {
+  if (canShareAndroidScreen()) return true;
   return typeof navigator !== "undefined" && Boolean(navigator.mediaDevices && "getDisplayMedia" in navigator.mediaDevices) && !/iPhone|iPad|Android/i.test(navigator.userAgent);
 }
 

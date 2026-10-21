@@ -4,6 +4,7 @@
  * Three lanes are set up once: microphone, video (camera or screen) and the screen's sound,
  * so switching camera ↔ screen or muting never needs a new negotiation.
  */
+import { captureAndroidScreen, canShareAndroidScreen } from "./android-screen";
 import { readStats, type LinkStats } from "./share";
 
 export type CallSignal = { kind: "offer"; sdp: string } | { kind: "answer"; sdp: string } | { kind: "ice"; candidate: RTCIceCandidateInit };
@@ -159,6 +160,7 @@ export async function openCamera(options: { deviceId?: string; facing?: "user" |
 
 /** The screen (and its sound where the system allows it) for sharing during a call. */
 export async function openScreen(): Promise<{ video: MediaStreamTrack; audio: MediaStreamTrack | null }> {
+  if (canShareAndroidScreen()) return { video: (await captureAndroidScreen()).getVideoTracks()[0]!, audio: null };
   const stream = await navigator.mediaDevices.getDisplayMedia({
     video: { frameRate: { ideal: 30, max: 30 }, height: { ideal: 1080 } },
     audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -171,5 +173,6 @@ export async function openScreen(): Promise<{ video: MediaStreamTrack; audio: Me
 }
 
 export function canShareScreenInCall(): boolean {
+  if (canShareAndroidScreen()) return true;
   return typeof navigator !== "undefined" && Boolean(navigator.mediaDevices && "getDisplayMedia" in navigator.mediaDevices) && !/iPhone|iPad|Android/i.test(navigator.userAgent);
 }

@@ -33,6 +33,12 @@
         <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/bloom_mint" />
         <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="bloom" />
 
+        <!-- Screen sharing in calls and the cinema runs as a foreground service while Bloom is in the background. -->
+        <service
+            android:name=".ScreenShareService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -55,6 +61,9 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Screen sharing -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <queries>
         <intent>
