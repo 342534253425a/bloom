@@ -42,6 +42,7 @@ export type MessageData = {
   /** A call record (written by the caller when the call ends). */
   call?: { video: boolean; status: "ended" | "missed" | "declined"; seconds: number } | null;
   video?: VideoAttachment | null;
+  file?: FileAttachment | null;
   /** Memes and finds: humor, useful, science, cooking… (shown together on the Memes shelf). */
   topic?: string | null;
   /** Forwarded from another chat; name of the original author, or null when it was your own. */
@@ -55,6 +56,8 @@ export type MessageData = {
 };
 
 export type VideoAttachment = { path: string; width: number; height: number; duration: number; mime: string; secret?: FileSecret };
+/** Any other file (documents, archives, a folder sent as .zip). */
+export type FileAttachment = { path: string; name: string; size: number; mime: string; secret?: FileSecret };
 
 /** Messages ordered the way the server received them (phone clocks in two countries can disagree). */
 export function messageOrder(a: CoupleItem<MessageData>, b: CoupleItem<MessageData>) {

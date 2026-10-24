@@ -5,6 +5,8 @@ import { inFront, openOutside } from "@/shared/lib/native";
 import { myId, type CoupleItem, type MessageData } from "@/entities/couple";
 import { allConversations, edit, forward, messageOrder, pin, react, read, removeMessage, send as sendTo, useContacts, type Conversation } from "@/entities/chat";
 import { localeOf } from "@/shared/i18n";
+import { droppedFiles, fileIcon, pickedFolder, saveFile, sizeLabel } from "@/shared/lib/files";
+import { shell } from "@/shared/lib/native";
 import { topicIcon, topics } from "@/shared/config/topics";
 import { embedUrl, findLinks, mainLink, type LinkInfo } from "@/shared/lib/links";
 import { compressImage, fileUrl, MAX_FILE, uploadCoupleFile, uploadSecretFile, videoInfo } from "@/shared/lib/media";
@@ -27,7 +29,8 @@ const quickReactions = ["❤️", "👍", "👎", "🔥", "🥰", "👏"];
 const moreReactions = ["😂", "😮", "😢", "🥺", "🙏", "🎉", "🤔", "😍", "🤯", "😱", "🤬", "💯", "🤝", "👀", "😴", "🤗", "😎", "🤩", "💔", "🌸", "⚡", "🍓", "🏆", "🙈", "🤡", "💩", "🫶", "✨", "☕", "🍿"];
 
 type Msg = CoupleItem<MessageData>;
-type Pending = { file: File; url: string; video: boolean };
+/** Ready to send: a photo or video (shown as such) or any other file (a card with its name). */
+type Pending = { file: File; url: string; kind: "photo" | "video" | "file" };
 
 /** Date formatters are slow to create, so each one is made once per language and reused for every message. */
 const formatters = new Map<string, Intl.DateTimeFormat>();
@@ -78,13 +81,14 @@ export function callLabel(t: (key: string) => string, call: NonNullable<MessageD
 
 export function preview(t: (key: string) => string, message: Msg | undefined): string {
   if (!message) return t("couple.chat.deleted");
-  if (message.data.locked || message.data.unreadable || (message.data.enc && message.data.text === undefined && !message.data.photo && !message.data.video && !message.data.voice && !message.data.sticker))
+  if (message.data.locked || message.data.unreadable || (message.data.enc && message.data.text === undefined && !message.data.photo && !message.data.video && !message.data.voice && !message.data.sticker && !message.data.file))
     return t("people.e2e.preview");
   if (message.data.call) return `📞 ${callLabel(t, message.data.call, message.author === myId())}`;
   if (message.data.voice) return `🎤 ${t("couple.chat.voice")}`;
   if (message.data.photo) return `📷 ${message.data.text || t("couple.chat.photo")}`;
   if (message.data.video) return `🎬 ${message.data.text || t("people.chat.video")}`;
   if (message.data.sticker) return `🌸 ${t("couple.chat.sticker")}`;
+  if (message.data.file) return `${fileIcon(message.data.file.name)} ${message.data.file.name}`;
   return (message.data.text ?? "").slice(0, 90);
 }
 
@@ -248,7 +252,7 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
   });
 
   /** Stickers, voice, photos and videos (with an optional caption). */
-  async function send(extra: Partial<Pick<MessageData, "sticker" | "voice" | "photo" | "video" | "topic">>, caption: string | null = null) {
+  async function send(extra: Partial<Pick<MessageData, "sticker" | "voice" | "photo" | "video" | "file" | "topic">>, caption: string | null = null) {
     setStickerOpen(false);
     const reply = replyTo;
     setReplyTo(null);
@@ -263,14 +267,20 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
     }
   }
 
-  /** Photos and videos: from the clip button, Ctrl+V, or dropped on the chat. */
-  const attach = useStable((files: File[]) => {
-    const media = files.filter(isMedia);
-    if (!media.length) return;
-    const tooBig = media.filter((file) => file.size > MAX_FILE);
+  /** Photos, videos, any files and folders (as .zip): from the clip button, Ctrl+V, or dropped on the chat. */
+  const attach = useStable((files: File[], asFiles = false) => {
+    if (!files.length) return;
+    const tooBig = files.filter((file) => file.size > MAX_FILE);
     if (tooBig.length) toast(t("people.chat.tooBig"), "c-frown");
-    const ok = media.filter((file) => file.size <= MAX_FILE).slice(0, 10);
-    if (ok.length) setPending(ok.map((file) => ({ file, url: URL.createObjectURL(file), video: file.type.startsWith("video/") })));
+    const ok = files.filter((file) => file.size <= MAX_FILE).slice(0, 10);
+    if (ok.length)
+      setPending(
+        ok.map((file) => ({
+          file,
+          url: URL.createObjectURL(file),
+          kind: asFiles || !isMedia(file) ? "file" : file.type.startsWith("video/") ? "video" : "photo",
+        })),
+      );
   });
 
   async function sendPending(items: Pending[], caption: string, topic: string | null) {
@@ -280,7 +290,10 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
       const store = await uploader(conv);
       for (const [index, item] of items.entries()) {
         const words = index === 0 ? caption.trim() || null : null;
-        if (item.video) {
+        if (item.kind === "file") {
+          const file = await store("files", item.file);
+          await send({ file: { ...file, name: item.file.name || "file", size: item.file.size, mime: item.file.type || "application/octet-stream" }, topic }, words);
+        } else if (item.kind === "video") {
           const info = await videoInfo(item.file);
           const file = await store("videos", item.file);
           await send({ video: { ...file, ...info, mime: item.file.type }, topic }, words);
@@ -382,7 +395,8 @@ export function ChatThread({ conv, compact = false, searchOpen = false, onSearch
       onDrop={(event) => {
         event.preventDefault();
         setDragging(false);
-        attach([...event.dataTransfer.files]);
+        // Folders arrive packed as .zip.
+        void droppedFiles(event.dataTransfer).then((files) => attach(files));
       }}
     >
       {selected ? (
@@ -668,7 +682,7 @@ const Composer = memo(function Composer({
   uploading: boolean;
   stickerOpen: boolean;
   onToggleStickers: () => void;
-  onAttach: (files: File[]) => void;
+  onAttach: (files: File[], asFiles?: boolean) => void;
   onSendText: (text: string, topic: string | null) => Promise<void>;
   onVoice: (recording: { blob: Blob; duration: number; mime: string }) => Promise<void>;
   onEscape: () => void;
@@ -678,7 +692,10 @@ const Composer = memo(function Composer({
   const [text, setText] = useState(() => localStorage.getItem(draftKey) ?? "");
   const [linkTopic, setLinkTopic] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
+  const mediaInput = useRef<HTMLInputElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
+  const [clipOpen, setClipOpen] = useState(false);
   const lastTypingSent = useRef(0);
   const textRef = useRef(text);
   textRef.current = text;
@@ -722,10 +739,39 @@ const Composer = memo(function Composer({
         <button type="button" className={`icon-btn ${stickerOpen ? "is-sky" : ""}`} aria-label={t("couple.chat.stickers")} onClick={onToggleStickers}>
           <Glyph name="sparkle" size={20} />
         </button>
-        <button type="button" className="icon-btn" aria-label={t("people.chat.attach")} title={t("people.chat.attach")} disabled={uploading} onClick={() => fileInput.current?.click()}>
-          {uploading ? <span className="spinner" /> : <Glyph name="image" size={20} />}
-        </button>
-        <input ref={fileInput} type="file" accept="image/*,video/*" multiple hidden onChange={(event) => { onAttach([...(event.target.files ?? [])]); event.target.value = ""; }} />
+        <span className="clip">
+          <button type="button" className="icon-btn" aria-label={t("people.chat.attachAny")} title={t("people.chat.attachAny")} aria-expanded={clipOpen} disabled={uploading} onClick={() => setClipOpen(!clipOpen)}>
+            {uploading ? <span className="spinner" /> : <Glyph name="link" size={20} />}
+          </button>
+          {clipOpen ? (
+            <span className="clip-menu" onClick={() => setClipOpen(false)}>
+              <button type="button" onClick={() => mediaInput.current?.click()}>
+                🖼️ {t("people.chat.attach")}
+              </button>
+              <button type="button" onClick={() => fileInput.current?.click()}>
+                📎 {t("people.chat.file")}
+              </button>
+              {shell === "android" ? null : (
+                <button type="button" onClick={() => folderInput.current?.click()}>
+                  📁 {t("people.chat.folder")}
+                </button>
+              )}
+            </span>
+          ) : null}
+        </span>
+        <input ref={mediaInput} type="file" accept="image/*,video/*" multiple hidden onChange={(event) => { onAttach([...(event.target.files ?? [])]); event.target.value = ""; }} />
+        <input ref={fileInput} type="file" multiple hidden onChange={(event) => { onAttach([...(event.target.files ?? [])], true); event.target.value = ""; }} />
+        <input
+          ref={folderInput}
+          type="file"
+          hidden
+          {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+          onChange={(event) => {
+            const list = event.target.files;
+            if (list?.length) void pickedFolder(list).then((zip) => zip && onAttach([zip], true));
+            event.target.value = "";
+          }}
+        />
         <span className="input">
           <textarea
             ref={input}
@@ -734,8 +780,8 @@ const Composer = memo(function Composer({
             placeholder={t("couple.chat.placeholder")}
             maxLength={4000}
             onPaste={(event) => {
-              // Ctrl+V with a picture or video: show it ready to send, like Telegram.
-              const files = [...event.clipboardData.files].filter(isMedia);
+              // Ctrl+V with pictures, videos or any copied files: show them ready to send, like Telegram.
+              const files = [...event.clipboardData.files];
               if (files.length) {
                 event.preventDefault();
                 onAttach(files);
@@ -848,6 +894,7 @@ const MessageRow = memo(function MessageRow({
           {data.sticker ? <Art name={data.sticker} /> : null}
           {data.photo ? <Photo path={data.photo.path} secret={data.photo.secret} ratio={data.photo.width / data.photo.height} onOpen={onOpenPhoto} /> : null}
           {data.video ? <VideoNote path={data.video.path} secret={data.video.secret} ratio={data.video.width / data.video.height} /> : null}
+          {data.file ? <FileCard file={data.file} /> : null}
           {data.voice ? <VoicePlayer path={data.voice.path} secret={data.voice.secret} duration={data.voice.duration} tone={mine ? "dark" : "light"} /> : null}
           {link ? <LinkCard link={link} /> : null}
           {text ? <span className="chat-text">{text}</span> : null}
@@ -888,6 +935,41 @@ function menuSpot(menu: { x: number; y: number; more: boolean }) {
   const left = Math.max(8, Math.min(menu.x, window.innerWidth - width - 8));
   const top = Math.max(8, Math.min(menu.y - 60, window.innerHeight - height - 8));
   return { left, top };
+}
+
+/** A file in the chat: its name and size; a tap downloads it (decrypted on this device when it is encrypted). */
+function FileCard({ file }: { file: NonNullable<MessageData["file"]> }) {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      className="chat-file"
+      disabled={busy}
+      title={t("people.chat.download")}
+      onClick={async (event) => {
+        event.stopPropagation();
+        setBusy(true);
+        try {
+          const url = await fileUrl(file.path, file.secret);
+          if (!url) throw new Error("no file");
+          await saveFile(url, file.name);
+        } catch {
+          toast(t("couple.chat.uploadFailed"), "c-frown");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <span className="chat-file-icon">{busy ? <span className="spinner" /> : fileIcon(file.name)}</span>
+      <span className="chat-file-copy">
+        <strong>{file.name}</strong>
+        <small>
+          {sizeLabel(file.size)} · {t("people.chat.download")}
+        </small>
+      </span>
+    </button>
+  );
 }
 
 /** Files go up encrypted (with their own key) when the chat is end-to-end encrypted, as they are otherwise. */
@@ -971,7 +1053,21 @@ function AttachSheet({ items, initialCaption, onCancel, onSend }: { items: Pendi
     <div className="attach-sheet" onClick={(event) => event.target === event.currentTarget && onCancel()}>
       <div className="attach-card" role="dialog" aria-label={t("people.chat.attach")}>
         <div className={`attach-previews ${items.length > 1 ? "is-many" : ""}`}>
-          {items.map((item) => (item.video ? <video key={item.url} src={item.url} muted controls playsInline /> : <img key={item.url} src={item.url} alt="" />))}
+          {items.map((item) =>
+            item.kind === "video" ? (
+              <video key={item.url} src={item.url} muted controls playsInline />
+            ) : item.kind === "photo" ? (
+              <img key={item.url} src={item.url} alt="" />
+            ) : (
+              <span key={item.url} className="attach-file">
+                <b>{fileIcon(item.file.name)}</b>
+                <span>
+                  <strong>{item.file.name}</strong>
+                  <small>{sizeLabel(item.file.size)}</small>
+                </span>
+              </span>
+            ),
+          )}
         </div>
         <TopicChips value={topic} onChange={setTopic} />
         <span className="input">

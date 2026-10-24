@@ -15,12 +15,13 @@ import {
   toggleCamera,
   toggleMic,
   toggleScreen,
+  inviteToCall,
   useCall,
   switchDevice,
   type CallState,
 } from "@/entities/call";
 import { useCouple, useItems } from "@/entities/couple";
-import { useContacts, type Conversation } from "@/entities/chat";
+import { allConversations, useContacts, type Conversation } from "@/entities/chat";
 import { desktop, inFront, onNoteAction } from "@/shared/lib/native";
 import { canShareScreenInCall, listDevices, type Devices } from "@/shared/lib/webrtc/call";
 import { Art, toast } from "@/shared/ui/kit";
@@ -43,6 +44,7 @@ const icons = {
   min: "M6 12h12",
   full: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
   pin: "M9 4h6l-1 6 3 3H7l3-3-1-6zM12 13v7",
+  addPerson: "M15 19v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 8v6M22 11h-6",
   gear: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.3l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2.2-1.3L14.4 3h-4l-.4 2.4a7.6 7.6 0 0 0-2.2 1.3l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.6l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 2.2 1.3l.4 2.4h4l.4-2.4a7.6 7.6 0 0 0 2.2-1.3l2.4 1 2-3.4-2-1.6c.1-.4.1-.9.1-1.3Z",
 };
 
@@ -254,7 +256,7 @@ export function CallHost() {
   return (
     <>
       <ScreenPicker />
-      {call.media ? <RemoteAudio streams={call.media.audio} sink={sink} /> : null}
+      {call.people.length ? <RemoteAudio streams={call.people.flatMap((person) => person.media?.audio ?? [])} sink={sink} /> : null}
       {call.minimized && (call.phase === "active" || call.phase === "connecting" || call.phase === "outgoing") ? (
         <MiniCall call={call} name={name} />
       ) : (
@@ -266,29 +268,33 @@ export function CallHost() {
 
 type T = (key: string, options?: Record<string, unknown>) => string;
 
-/** Every picture in the call: their screen, their camera, your screen, your camera. Any of them can be the big one. */
-type Tile = { key: "their-screen" | "their-cam" | "my-screen" | "my-cam"; stream: MediaStream; mirror?: boolean };
+/** Every picture in the call: each person's screen and camera, then yours. Any of them can be the big one. */
+type Tile = { key: string; stream: MediaStream; mirror?: boolean; name?: string; screen?: boolean; mine?: boolean };
 
 function callTiles(call: CallState): Tile[] {
   const tiles: Tile[] = [];
   const has = (stream: MediaStream | null | undefined): stream is MediaStream => Boolean(stream && stream.getVideoTracks().length);
-  if (call.remote.screen && has(call.media?.screen)) tiles.push({ key: "their-screen", stream: call.media!.screen });
-  if (call.remote.cam && has(call.media?.video)) tiles.push({ key: "their-cam", stream: call.media!.video });
-  if (has(call.localScreen)) tiles.push({ key: "my-screen", stream: call.localScreen! });
-  if (call.cam && has(call.local)) tiles.push({ key: "my-cam", stream: call.local!, mirror: true });
+  for (const person of call.people) {
+    if (person.remote.screen && has(person.media?.screen)) tiles.push({ key: `${person.key}:screen`, stream: person.media!.screen, name: person.name, screen: true });
+    if (person.remote.cam && has(person.media?.video)) tiles.push({ key: `${person.key}:cam`, stream: person.media!.video, name: person.name });
+  }
+  if (has(call.localScreen)) tiles.push({ key: "my-screen", stream: call.localScreen!, screen: true, mine: true });
+  if (call.cam && has(call.local)) tiles.push({ key: "my-cam", stream: call.local!, mirror: true, mine: true });
   return tiles;
 }
 
 /** What the partner sends: their shared screen, their camera, or both (then the screen is the big picture). */
 function remotePictures(call: CallState) {
-  const screen = call.media && call.remote.screen && call.media.screen.getVideoTracks().length ? call.media.screen : null;
-  const camera = call.media && call.remote.cam && call.media.video.getVideoTracks().length ? call.media.video : null;
+  const tiles = callTiles(call).filter((tile) => !tile.mine);
+  const screen = tiles.find((tile) => tile.screen)?.stream ?? null;
+  const camera = tiles.find((tile) => !tile.screen)?.stream ?? null;
   return { main: screen ?? camera, side: screen ? camera : null };
 }
 
 function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: string; sink: string; onSink: (id: string) => void; t: T }) {
-  const [focus, setFocus] = useState<Tile["key"] | null>(null);
-  const [spots, setSpots] = useState<Partial<Record<Tile["key"], { x: number; y: number }>>>({});
+  const [focus, setFocus] = useState<string | null>(null);
+  const [spots, setSpots] = useState<Record<string, { x: number; y: number }>>({});
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [onTop, setOnTop] = useState(false);
   // The call ends: Bloom stops sitting above the other windows.
@@ -304,15 +310,20 @@ function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: st
   useTicker(call.phase === "active");
 
   const talking = call.phase === "active" || call.phase === "connecting";
-  // The partner's screen first, then their camera; while calling out, your own camera. A tap on a small one makes it big.
+  // Someone's screen first; with several people and no screen, everyone in a grid; otherwise the other person's camera;
+  // while calling out, your own camera. A tap on any small picture makes it big.
   const tiles = callTiles(call);
-  const main =
-    tiles.find((tile) => tile.key === focus) ??
-    tiles.find((tile) => tile.key === "their-screen" || tile.key === "their-cam") ??
-    (call.phase === "outgoing" ? tiles.find((tile) => tile.key === "my-cam") : undefined) ??
-    null;
-  const small = talking ? tiles.filter((tile) => tile !== main) : [];
-  const remoteHasVideo = Boolean(main);
+  const focused = tiles.find((tile) => tile.key === focus);
+  const grid = !focused && call.people.length >= 2 && !tiles.some((tile) => tile.screen);
+  const main = grid
+    ? null
+    : (focused ??
+      tiles.find((tile) => tile.screen && !tile.mine) ??
+      tiles.find((tile) => !tile.mine) ??
+      (call.phase === "outgoing" ? tiles.find((tile) => tile.key === "my-cam") : undefined) ??
+      null);
+  const small = talking ? tiles.filter((tile) => tile !== main && !(grid && !tile.mine)) : [];
+  const remoteHasVideo = Boolean(main) || grid;
   const mobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
 
   const status =
@@ -332,9 +343,25 @@ function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: st
     <div className={`call-screen is-${call.phase} ${remoteHasVideo ? "has-video" : ""}`} role="dialog" aria-label={t("call.video")}>
       <div className="call-backdrop" />
       <div className="call-stage" ref={stage}>
-        {main ? (
+        {grid ? (
+          <div className={`call-grid is-${Math.min(call.people.length, 6)}`}>
+            {call.people.map((person) => {
+              const cam = tiles.find((tile) => tile.key === `${person.key}:cam`);
+              return (
+                <button key={person.key} type="button" className="call-grid-cell" onClick={() => cam && setFocus(cam.key)}>
+                  {cam ? <Video stream={cam.stream} /> : <span className="call-grid-ava">{person.name.trim().charAt(0).toUpperCase() || "♥"}</span>}
+                  <span className="call-tile-name">
+                    {person.remote.mic ? "" : "🔇 "}
+                    {person.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : main ? (
           <div className="call-remote" onDoubleClick={() => void stage.current?.requestFullscreen?.()}>
             <Video stream={main.stream} mirror={main.mirror} />
+            {main.name && call.people.length > 1 ? <span className="call-tile-name">{main.name}</span> : null}
           </div>
         ) : (
           <div className="call-avatar">
@@ -347,7 +374,8 @@ function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: st
         <header className="call-top">
           <div>
             <strong>{name}</strong>
-            <span>{status}</span>
+            <span>{call.phase === "incoming" && call.group ? t("call.groupInvite") : status}</span>
+            {call.inviting.length ? <em>📞 {t("call.inviting", { names: call.inviting.join(", ") })}</em> : null}
             {call.phase === "active" && !call.remote.mic ? <em>🔇 {t("call.mutedThem", { name })}</em> : null}
             {call.remote.screen && talking ? <em>🖥 {t("call.theyShare", { name })}</em> : null}
             {quality?.weak && call.phase === "active" ? <em>📶 {t("call.weak")}</em> : null}
@@ -393,6 +421,7 @@ function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: st
         {small.map((tile, slot) => (
           <FloatTile key={tile.key} slot={slot} pos={spots[tile.key] ?? null} onMove={(pos) => setSpots((all) => ({ ...all, [tile.key]: pos }))} onTap={() => setFocus(tile.key)}>
             <Video stream={tile.stream} mirror={tile.mirror} />
+            {tile.name && call.people.length > 1 ? <span className="call-tile-name">{tile.name}</span> : null}
           </FloatTile>
         ))}
         {call.screen ? (
@@ -422,11 +451,45 @@ function CallScreen({ call, name, sink, onSink, t }: { call: CallState; name: st
           <CallButton icon={call.cam ? icons.cam : icons.camOff} label={t("call.camera")} on={call.cam} onClick={() => void toggleCamera().then((ok) => !ok && toast(t("call.media"), "c-frown"))} />
           <CallButton icon={call.mic ? icons.mic : icons.micOff} label={t("call.mic")} on={call.mic} onClick={toggleMic} />
           {canShareScreenInCall() && talking ? <CallButton icon={icons.screen} label={t("call.screen")} on={!call.screen} onClick={() => void toggleScreen()} /> : null}
+          {talking || call.phase === "outgoing" ? <CallButton icon={icons.addPerson} label={t("call.invite")} onClick={() => setInviteOpen(true)} /> : null}
           {!mobile && talking ? <CallButton icon={icons.gear} label={t("call.devices")} onClick={() => setDevicesOpen(!devicesOpen)} /> : null}
           <CallButton icon={icons.hang} label={t("call.end")} tone="end" onClick={hangUp} />
         </div>
       )}
       {devicesOpen ? <DevicePicker sink={sink} onSink={onSink} onClose={() => setDevicesOpen(false)} t={t} /> : null}
+      {inviteOpen ? <InviteSheet call={call} onClose={() => setInviteOpen(false)} t={t} /> : null}
+    </div>
+  );
+}
+
+/** Add the partner or a contact to the call: they get a call from you and join everyone here. */
+function InviteSheet({ call, onClose, t }: { call: CallState; onClose: () => void; t: T }) {
+  const contacts = useContacts();
+  const here = new Set(call.people.map((person) => person.user));
+  const choices = allConversations(contacts.list).filter((conv) => !here.has(conv.peer.id) && !call.inviting.includes(conv.peer.name));
+  return (
+    <div className="call-invite" onClick={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="call-invite-card" role="dialog" aria-label={t("call.inviteTitle")}>
+        <h3>{t("call.inviteTitle")}</h3>
+        <p>{choices.length ? t("call.inviteBody") : t("call.inviteNobody")}</p>
+        {choices.map((conv) => (
+          <button
+            key={conv.id}
+            type="button"
+            onClick={() => {
+              inviteToCall(conv);
+              onClose();
+            }}
+          >
+            <span className="call-invite-ava">{conv.isPartner ? "❤️" : conv.peer.name.trim().charAt(0).toUpperCase() || "♥"}</span>
+            <b>{conv.peer.name}</b>
+            <small>{conv.peer.online ? "●" : ""}</small>
+          </button>
+        ))}
+        <button type="button" className="call-invite-close" onClick={onClose}>
+          {t("common.close")}
+        </button>
+      </div>
     </div>
   );
 }

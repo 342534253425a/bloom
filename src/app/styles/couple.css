@@ -2303,3 +2303,78 @@ button.chat-locked {
   justify-self: center;
   font-size: 13px;
 }
+
+/* ---------- Files and folders in chats ---------- */
+.clip {
+  position: relative;
+}
+.clip-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  display: grid;
+  width: 210px;
+  padding: 6px 0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(30, 24, 60, 0.2), 0 0 0 1px rgba(30, 24, 60, 0.05);
+  animation: menu-in 0.14s var(--ease) both;
+}
+.clip-menu button {
+  padding: 10px 16px;
+  font-weight: 600;
+  font-size: 14.5px;
+  text-align: left;
+}
+.clip-menu button:hover {
+  background: var(--bg);
+}
+.chat-file,
+.attach-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  max-width: 300px;
+  text-align: left;
+  color: inherit;
+}
+.chat-file-icon,
+.attach-file b {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 22px;
+  background: rgba(0, 0, 0, 0.06);
+}
+.chat-bubble.is-mine .chat-file-icon {
+  background: rgba(255, 255, 255, 0.22);
+}
+.chat-file-copy,
+.attach-file span {
+  display: grid;
+  min-width: 0;
+}
+.chat-file-copy strong,
+.attach-file strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 800;
+}
+.chat-file-copy small,
+.attach-file small {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.75;
+}
+.attach-file {
+  max-width: none;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--bg);
+}

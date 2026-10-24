@@ -206,7 +206,7 @@ export async function encryptedWith(peerId: string): Promise<boolean> {
 /* ------------------------------------------------------------------ messages */
 
 /** What goes inside the envelope. Reactions, pins, edits and call times stay outside (they carry no content). */
-const SECRET = ["text", "sticker", "photo", "video", "voice", "topic", "forwarded"] as const;
+const SECRET = ["text", "sticker", "photo", "video", "voice", "file", "topic", "forwarded"] as const;
 
 /** Envelope → its opened content, so our own messages and re-saves don't need to decrypt again. */
 const opened = new Map<string, Record<string, unknown>>();

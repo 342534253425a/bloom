@@ -128,11 +128,11 @@ export function messageOrder(a: CoupleItem<MessageData>, b: CoupleItem<MessageDa
   return a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
 }
 
-type Extra = Partial<Pick<MessageData, "sticker" | "replyTo" | "voice" | "photo" | "call" | "video" | "topic" | "forwarded">>;
+type Extra = Partial<Pick<MessageData, "sticker" | "replyTo" | "voice" | "photo" | "call" | "video" | "file" | "topic" | "forwarded">>;
 
 export async function send(conv: Conversation, text: string | null, extra: Extra = {}) {
   const body = text?.trim() || null;
-  if (!body && !extra.sticker && !extra.voice && !extra.photo && !extra.call && !extra.video) return;
+  if (!body && !extra.sticker && !extra.voice && !extra.photo && !extra.call && !extra.video && !extra.file) return;
   const id = `msg:${createId()}`;
   await conv.put(id, "msg", {
     text: body,
@@ -142,6 +142,7 @@ export async function send(conv: Conversation, text: string | null, extra: Extra
     voice: extra.voice ?? null,
     photo: extra.photo ?? null,
     ...(extra.video ? { video: extra.video } : {}),
+    ...(extra.file ? { file: extra.file } : {}),
     ...(extra.topic ? { topic: extra.topic } : {}),
     ...(extra.forwarded ? { forwarded: extra.forwarded } : {}),
     ...(extra.call ? { call: extra.call } : {}),
@@ -214,6 +215,7 @@ export async function forward(from: Conversation, ids: string[], to: Conversatio
       photo: data.photo ? { ...data.photo, path: await copyFile(data.photo.path, to.key) } : null,
       video: data.video ? { ...data.video, path: await copyFile(data.video.path, to.key) } : null,
       voice: data.voice ? { ...data.voice, path: await copyFile(data.voice.path, to.key) } : null,
+      file: data.file ? { ...data.file, path: await copyFile(data.file.path, to.key) } : null,
       topic: data.topic ?? null,
       forwarded: { name: data.forwarded?.name ?? author ?? null },
     });

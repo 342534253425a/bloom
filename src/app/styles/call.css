@@ -579,3 +579,130 @@
 .call-mini-btn.is-on {
   background: #36c89c;
 }
+
+/* ---------- Group calls ---------- */
+.call-grid {
+  position: absolute;
+  inset: 76px 12px 12px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: center;
+}
+.call-grid.is-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.call-grid.is-3,
+.call-grid.is-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.call-grid.is-5,
+.call-grid.is-6 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 640px) {
+  .call-grid.is-5,
+  .call-grid.is-6 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.call-grid-cell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #221d36;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.call-grid-cell video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.call-grid-ava {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  font-size: 30px;
+  font-weight: 900;
+  color: #fff;
+  background: linear-gradient(140deg, #8be3c4, #36c89c 55%, #ff9fb6);
+}
+.call-tile-name {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 1;
+  max-width: calc(100% - 16px);
+  padding: 3px 9px;
+  border-radius: 99px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+}
+.call-invite {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(10, 8, 20, 0.55);
+}
+.call-invite-card {
+  display: grid;
+  gap: 6px;
+  width: min(360px, 100%);
+  max-height: 80%;
+  overflow-y: auto;
+  padding: 16px;
+  border-radius: 22px;
+  color: var(--ink);
+  background: #fff;
+}
+.call-invite-card h3 {
+  margin: 0;
+}
+.call-invite-card p {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.call-invite-card > button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+  border-radius: 14px;
+  text-align: left;
+}
+.call-invite-card > button:hover {
+  background: var(--bg);
+}
+.call-invite-card small {
+  margin-left: auto;
+  color: #36c89c;
+}
+.call-invite-ava {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-weight: 900;
+  color: #fff;
+  background: linear-gradient(140deg, #8be3c4, #36c89c 55%, #7cb4f0);
+}
+.call-invite-close {
+  justify-content: center;
+  font-weight: 800;
+  color: var(--muted);
+}
